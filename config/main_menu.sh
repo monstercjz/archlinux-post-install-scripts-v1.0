@@ -1,51 +1,80 @@
 #!/bin/bash
+# ==============================================================================
+# 项目: archlinux-post-install-scripts
+# 文件: config/main_menu.sh
+# 版本: 1.0
+# 日期: 2025-06-06
+# 描述: 主菜单脚本。向用户展示主要功能分类，并调度到对应的二级菜单。
+# ==============================================================================
 
-# main_menu.sh
-# 主菜单脚本：向用户展示主要功能分类，并调度到对应的二级菜单。
+# 严格模式：
+set -euo pipefail
 
-# 通用初始化块
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-PROJECT_ROOT=""
-current_dir="$SCRIPT_DIR"
-while [[ "$current_dir" != "/" && ! -d "$current_dir/config" ]]; do
-    current_dir="$(dirname "$current_dir")"
-done
-if [[ -d "$current_dir/config" ]]; then
-    PROJECT_ROOT="$current_dir"
+# 引入 utils.sh
+# utils.sh 包含了所有的初始化逻辑 (_initialize_project_environment)
+# 以及所有通用函数。
+# 使用相对路径来找到 utils.sh (main_menu.sh 在 config/ 下，lib/ 在 config/ 下)。
+utils_script="$(dirname "${BASH_SOURCE[0]}")/lib/utils.sh"
+if [ -f "$utils_script" ]; then
+    . "$utils_script"
 else
-    echo "错误：无法找到项目根目录 (包含 config 目录)。" >&2
+    # 此时还不能使用 utils.sh 的颜色常量，直接 echo 致命错误。
+    echo "Fatal Error: Required utility script not found at $utils_script. Exiting." >&2
     exit 1
 fi
-source "$PROJECT_ROOT/config/main_config.sh"
-source "$PROJECT_ROOT/config/lib/utils.sh"
-get_original_user_info # 获取原始用户信息
 
-main_menu() {
-    while true; do
-        CHOICE=$(dialog --clear \
-                        --backtitle "Arch Linux 后安装脚本" \
-                        --title "主菜单" \
-                        --menu "选择一个功能类别:" 15 60 7 \
-                        "1" "系统基础配置" \
-                        "2" "包管理配置" \
-                        "3" "用户环境配置" \
-                        "4" "软件安装" \
-                        "C" "清理和完成" \
-                        "Q" "退出" \
-                        2>&1 >/dev/tty)
+# 调用统一的项目环境初始化函数。
+# 它会处理所有早期启动任务，包括权限检查、配置加载、日志初始化等。
+_initialize_project_environment "${BASH_SOURCE[0]}"
 
-        case "$CHOICE" in
-            1) dispatch_module "$PROJECT_ROOT/config/modules/01_system_base/00_system_base_menu.sh" ;;
-            2) dispatch_module "$PROJECT_ROOT/config/modules/02_package_management/00_package_management_menu.sh" ;;
-            3) dispatch_module "$PROJECT_ROOT/config/modules/03_user_environment/00_user_environment_menu.sh" ;;
-            4) dispatch_module "$PROJECT_ROOT/config/modules/04_software_installation/00_software_installation_menu.sh" ;;
-            C) dispatch_module "$PROJECT_ROOT/config/modules/00_cleanup_and_finish.sh" ;;
-            Q) break ;;
-            *) log_warn "无效选项，请重新选择。" ;;
-        esac
-    done
-    log_info "脚本执行完毕，退出。"
-}
+# ==============================================================================
+# 脚本核心逻辑
+# ==============================================================================
 
-# 执行主菜单
-main_menu
+display_header_section "主菜单"
+log_info "Welcome to the main setup menu."
+
+# 示例菜单选项
+menu_options=(
+    "01_System_Base_Config"
+    "02_Package_Management"
+    "03_User_Environment"
+    "04_Software_Installation"
+    "05_Cleanup_and_Finish"
+    "Exit"
+)
+
+# 使用 utils.sh 中的 display_menu 函数
+selected_choice=$(display_menu "请选择一个类别进行配置" "${menu_options[@]}")
+
+case "$selected_choice" in
+    "01_System_Base_Config")
+        log_info "进入系统基础配置模块..."
+        # 确保这里调用子脚本时，也使用 bash 执行，并传递 BASE_DIR
+        bash "${BASE_DIR}/config/modules/01_system_base/00_system_base_menu.sh" || log_error "系统基础配置模块执行失败。"
+        ;;
+    "02_Package_Management")
+        log_info "进入包管理模块..."
+        bash "${BASE_DIR}/config/modules/02_package_management/00_package_management_menu.sh" || log_error "包管理模块执行失败。"
+        ;;
+    "03_User_Environment")
+        log_info "进入用户环境模块..."
+        bash "${BASE_DIR}/config/modules/03_user_environment/00_user_environment_menu.sh" || log_error "用户环境模块执行失败。"
+        ;;
+    "04_Software_Installation")
+        log_info "进入软件安装模块..."
+        bash "${BASE_DIR}/config/modules/04_software_installation/00_software_installation_menu.sh" || log_error "软件安装模块执行失败。"
+        ;;
+    "05_Cleanup_and_Finish")
+        log_info "执行清理和完成任务..."
+        bash "${BASE_DIR}/config/modules/00_cleanup_and_finish.sh" || log_error "清理和完成任务执行失败。"
+        ;;
+    "Exit")
+        log_info "退出主菜单。感谢使用！"
+        ;;
+    *)
+        log_warn "无效的菜单选择: $selected_choice"
+        ;;
+esac
+
+log_info "主菜单执行完毕。"

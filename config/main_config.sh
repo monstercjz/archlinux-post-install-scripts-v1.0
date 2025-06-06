@@ -1,38 +1,47 @@
 #!/bin/bash
+# config/main_config.sh
 
-# main_config.sh
-# 全局配置变量：定义如日志根目录、默认 AUR 助手等全局设置。
+# ==============================================================================
+# 项目: archlinux-post-install-scripts
+# 文件: config/main_config.sh
+# 版本: 1.0
+# 日期: 2025-06-06
+# 描述: 全局配置变量。
+#       此文件定义了整个脚本项目使用的全局设置，可根据用户偏好进行修改。
+# ------------------------------------------------------------------------------
+# 注意：此文件不应包含任何可执行逻辑，只定义变量。
+# ==============================================================================
 
-# 项目根目录 (由通用初始化块设置)
-# PROJECT_ROOT=""
+# 日志设置
+# 脚本日志文件的根目录。建议使用 /var/log/ 下的路径，因为通常由 root 管理。
+# 例如: "/var/log/archlinux_post_install_setup"
+LOG_ROOT="/var/log/archlinux_post_install_setup" 
 
-# 日志配置
-LOG_DIR="${PROJECT_ROOT}/log"
-LOG_FILE="${LOG_DIR}/install_$(date +%Y%m%d_%H%M%S).log"
+# 是否在终端输出中启用颜色（true/false）。
+# 在非交互式或不支持颜色的环境中可设为 false。
+ENABLE_COLORS="true"
 
-# AUR 助手
-# 可选值: paru, yay, none
+# AUR 助手设置
+# 默认的 AUR 助手（例如 "paru" 或 "yay"）。
 DEFAULT_AUR_HELPER="paru"
 
-# 用户配置
-# 脚本通常以 root 运行，但某些操作可能需要以原始用户身份执行
-ORIGINAL_USER_NAME="" # 存储运行 sudo 的原始用户名
-ORIGINAL_USER_HOME="" # 存储原始用户的主目录
+# Pacman 镜像配置
+# 生成 Pacman 镜像列表的默认国家，使用 pacman-mirrors 工具的国家代码。
+# 例如: "China", "Germany", "United States"
+PACMAN_MIRROR_COUNTRY="China"
 
-# 颜色定义 (用于终端输出)
-COLOR_RESET="\033[0m"
-COLOR_RED="\033[0;31m"
-COLOR_GREEN="\033[0;32m"
-COLOR_YELLOW="\033[0;33m"
-COLOR_BLUE="\033[0;34m"
-COLOR_MAGENTA="\033[0;35m"
-COLOR_CYAN="\033[0;36m"
-COLOR_WHITE="\033[0;37m"
+# 用户交互设置
+# 设置为 "true" 时，脚本会跳过部分确认提示，谨慎使用！
+ASSUME_YES="false"
 
-# 其他通用配置
-# 例如：默认编辑器、网络配置路径等
-DEFAULT_EDITOR="nano"
-SYSTEMD_NETWORKD_CONFIG_PATH="/etc/systemd/network"
+# Dotfiles 仓库设置
+# 如果使用 Git 仓库管理 dotfiles，请在此处填写仓库 URL。
+# 例如: "https://github.com/your-username/your-dotfiles.git"
+DOTFILES_REPO="https://github.com/your-username/your-dotfiles.git"
+# Dotfiles 仓库克隆到本地的目录（相对于用户主目录）。
+# 例如: "$HOME/.dotfiles"
+DOTFILES_LOCAL_DIR="$HOME/.dotfiles"
 
-# 确保日志目录存在
-mkdir -p "$LOG_DIR" &>/dev/null
+# 调试模式
+# 设置为 "true" 会启用更多详细的调试信息输出。
+DEBUG_MODE="false" 
