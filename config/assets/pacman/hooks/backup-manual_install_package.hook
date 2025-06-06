@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Backing up manually installed package info...
+When = PostTransaction
+Exec = /usr/bin/bash /path/to/your/archlinux-post-install-scripts-v1.0/config/assets/pacman/hooks/backup-manual_install_package-info.sh

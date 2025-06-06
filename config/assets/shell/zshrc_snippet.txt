@@ -1,0 +1,22 @@
+# Zshrc snippet example
+# Add this to your ~/.zshrc
+
+# Aliases
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias grep='grep --color=auto'
+
+# Prompt
+PROMPT='%F{green}%n@%m%f:%F{blue}%~%f%# '
+
+# History
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+
+# Autocompletion
+autoload -Uz compinit
+compinit
+
+# Key bindings
+bindkey -e
