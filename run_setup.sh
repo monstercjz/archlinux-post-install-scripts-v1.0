@@ -2,81 +2,99 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: run_setup.sh
-# 版本: 1.0
-# 日期: 2025-06-06
-# 描述: 主入口脚本。负责项目的初始化设置，包括权限检查、日志系统准备，
-#       并启动主菜单。用户应首次运行此脚本。
+# 版本: 1.0.7 (最终修正，使用通用顶部引导块)
+# 日期: 2025-06-08
+# 描述: Arch Linux 后安装脚本的主入口点。
+#       负责初始化项目环境、显示欢迎信息，并引导用户进入主菜单。
 # ------------------------------------------------------------------------------
-# 职责：
-# - 执行严格的 Bash 模式设置。
-# - 确定项目根目录 (BASE_DIR)。
-# - 引入核心工具库 (utils.sh)。
-# - 调用统一的项目环境初始化函数 (_initialize_project_environment)。
-# - 启动项目的主菜单 (main_menu.sh)。
+# 变更记录:
+# v1.0.0 - 2025-06-08 - 初始版本。
+# v1.0.1 - 2025-06-08 - 引入 init_script_boilerplate.sh (旧版名称) 简化环境初始化。
+# v1.0.2 - 2025-06-08 - 适配 boilerplate.sh，完全剥离 utils.sh 的初始化职责。
+# v1.0.3 - 2025-06-08 - 适配更名为 environment_setup.sh 的环境引导脚本。
+# v1.0.4 - 2025-06-08 - 适配 environment_setup.sh 的调试优化和流程细化。
+# v1.0.5 - 2025-06-08 - 适配 environment_setup.sh 的 Root 权限检查提前。
+# v1.0.6 - 2025-06-08 - 采用新的脚本顶部引导块来健壮地确定 BASE_DIR 并加载 environment_setup.sh。
+# v1.0.7 - 2025-06-08 - **适配 environment_setup.sh 和 utils.sh 中的 __SOURCED__ 变量不再导出。**
 # ==============================================================================
+
+# --- 脚本顶部引导块 START ---
+# 这是所有入口脚本最开始执行的代码，用于健壮地确定项目根目录 (BASE_DIR)。
+# 无论脚本从哪个位置被调用，都能正确找到项目根目录，从而构建其他文件的绝对路径。
 
 # 严格模式：
-# -e: 遇到任何非零退出状态的命令立即退出。
-# -u: 引用未设置的变量时报错。
-# -o pipefail: 管道命令中任何一个失败都导致整个管道失败。
 set -euo pipefail
 
-# --- 颜色常量 (仅用于这个脚本的初期致命错误输出，utils.sh 接管后续日志颜色) ---
-# 定义标准 ANSI 颜色码，确保早期错误信息在终端中醒目。
-readonly RED='\033[0;31m'
-readonly BOLD='\033[1m'
-readonly RESET='\033[0m'
+# 获取当前正在执行（或被 source）的脚本的绝对路径。
+# BASH_SOURCE[0] 指向当前文件自身。如果此文件被 source，则 BASH_SOURCE[1] 指向调用者。
+# 我们需要的是原始调用脚本的路径来确定项目根目录。
+_current_script_entrypoint="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
 
-# 确定项目根目录 (BASE_DIR)。
-# `BASH_SOURCE[0]` 指向当前脚本的路径。`dirname` 取目录名，`cd ... && pwd -P` 获取规范路径。
-# 这里直接导出，以便 utils.sh 在被引入时能够读取。
-export BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# 动态查找项目根目录 (仅当 BASE_DIR 尚未设置时执行查找)
+if [ -z "${BASE_DIR+set}" ]; then # 检查 BASE_DIR 是否已设置 (无论值是否为空)
+    _project_root_candidate=$(cd "$(dirname "$_current_script_entrypoint")" && pwd -P)
+    _found_base_dir=""
 
-# 引入 utils.sh
-# utils.sh 包含了所有的初始化逻辑 (_initialize_project_environment)
-# 以及所有通用函数。
-# 使用 BASE_DIR 来构建 utils.sh 的路径，确保路径的准确性。
-utils_script="${BASE_DIR}/config/lib/utils.sh"
-if [ -f "$utils_script" ]; then
-    . "$utils_script"
-else
-    # 此时还不能使用 utils.sh 的颜色常量，直接 echo 致命错误。
-    echo "${BOLD}${RED}Fatal Error: Required utility script not found at $utils_script. Exiting.${RESET}" >&2
-    exit 1
+    while [[ "$_project_root_candidate" != "/" ]]; do
+        # 检查项目根目录的“签名”：存在 run_setup.sh 文件和 config/ 目录
+        if [[ -f "$_project_root_candidate/run_setup.sh" && -d "$_project_root_candidate/config" ]]; then
+            _found_base_dir="$_project_root_candidate"
+            break
+        fi
+        _project_root_candidate=$(dirname "$_project_root_candidate") # 向上移动一层目录
+    done
+
+    if [[ -z "$_found_base_dir" ]]; then
+        # 此时任何日志或颜色变量都不可用，直接输出致命错误并退出。
+        echo -e "\033[0;31mFatal Error:\033[0m Could not determine project base directory for '$_current_script_entrypoint'." >&2
+        echo -e "\033[0;31mPlease ensure 'run_setup.sh' and 'config/' directory are present in the project root.\033[0m" >&2
+        exit 1
+    fi
+    export BASE_DIR="$_found_base_dir"
 fi
 
-# 调用统一的项目环境初始化函数。
-# 这个函数会处理所有早期启动任务，包括权限检查、配置加载、日志初始化等。
-# 它内部会自行加载 main_config.sh、确定 ORIGINAL_USER/HOME，并准备日志目录。
-_initialize_project_environment "${BASH_SOURCE[0]}"
+# 在 BASE_DIR 确定后，立即 source environment_setup.sh
+# 这样 environment_setup.sh 和它内部的所有路径引用（如 utils.sh, main_config.sh）
+# 都可以基于 BASE_DIR 进行绝对引用，解决了 'source' 路径写死的痛点。
+# 同时，_current_script_entrypoint 传递给 environment_setup.sh 以便其内部用于日志等。
+source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoint"
+# --- 脚本顶部引导块 END ---
 
-# ==============================================================================
-# 核心业务逻辑 (现在可以使用完整的日志系统和所有工具函数)
-# ==============================================================================
 
-display_header_section "Arch Linux Post-Install Setup"
-log_info "Starting Arch Linux post-installation setup script."
-log_info "Running as user: $(whoami)"
-log_info "Original user (sudo caller): $ORIGINAL_USER (Home: $ORIGINAL_HOME)"
+# --- 主要逻辑 ---
 
-# 再次确认 root 权限，并记录到日志。
-# 理论上这里的代码不会被执行到，因为 _initialize_project_environment 已经确保了权限。
-if ! check_root_privileges; then
-    log_error "Internal Error: Root privileges lost after initial check. Exiting."
-    exit 1
-fi
-log_info "Root privileges confirmed (via full logging)."
+main() {
+    display_header_section "$PROJECT_NAME $PROJECT_VERSION"
+    log_info "Welcome to the Arch Linux Post-Installation Setup script!"
+    log_info "This script will guide you through configuring your Arch Linux system."
+    log_info "All operations are logged to: ${CURRENT_SCRIPT_LOG_FILE}"
+    log_info "Running as user: ${USER} (Original user: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
 
-# 启动主菜单脚本。
-# 使用 `bash` 命令执行，而不是 `source`，以保持模块间的独立性。
-log_info "Launching main setup menu..."
-# 注意：main_menu.sh 内部也需要类似的引入 utils.sh 和调用 _initialize_project_environment 的逻辑
-bash "${BASE_DIR}/config/main_menu.sh" || log_error "Main menu script exited with an error."
+    local main_menu_script="${CONFIG_DIR}/main_menu.sh" # 使用 CONFIG_DIR
+    if [ -f "$main_menu_script" ]; then
+        log_info "Starting main configuration menu..."
+        bash "$main_menu_script"
+        local menu_exit_code=$?
 
-# ==============================================================================
-# 脚本完成与退出
-# ==============================================================================
+        if [ "$menu_exit_code" -ne 0 ]; then
+            handle_error "Main menu exited with an error code ($menu_exit_code). Please review logs." "$menu_exit_code"
+        else
+            log_info "Main menu completed successfully or user chose to exit."
+        fi
+    else
+        handle_error "Main menu script not found at '$main_menu_script'."
+    fi
 
-log_info "Arch Linux Post-Install Setup Finished. You may need to reboot your system."
-display_header_section "Setup Complete!"
-exit 0
+    log_info "Setup process finished. Please review the log file for details."
+}
+
+# 调用主函数
+main "$@"
+
+exit_script() {
+    local exit_code=${1:-0}
+    log_info "Exiting Arch Linux Post-Installation Setup script."
+    exit "$exit_code"
+}
+
+exit_script 0

@@ -1,0 +1,8 @@
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] ==================================================
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] >>> Arch Linux Post-Installation Setup v1.0
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] ==================================================
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] Welcome to the Arch Linux Post-Installation Setup script!
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] This script will guide you through configuring your Arch Linux system.
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] All operations are logged to: /home/cjz/archlinux-post-install-scripts-v1.0/logs/run_setup-20250607_100904.log
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] Running as user: root (Original user: cjz, Home: /home/cjz)
+[2025-06-07 10:09:04] [INFO] [run_setup.sh] Starting main configuration menu...
