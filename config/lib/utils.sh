@@ -2,8 +2,8 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/utils.sh
-# 版本: 1.3.1
-# 日期: 2025-06-06
+# 版本: 1.3.1 (日志核心逻辑更新为基于索引)
+# 日期: 2025-06-07
 # 描述: 核心通用函数库。
 #       提供项目运行所需的基础功能，包括依赖加载、日志记录、权限检查、
 #       用户交互、文件操作等。旨在提高代码复用性、健壮性和可维护性。
@@ -32,8 +32,7 @@ set -euo pipefail
 # __UTILS_SOURCED__: 防止 utils.sh 被重复 source 导致函数重复定义。
 # 必须赋初始值，否则在 set -u 模式下会报错。
 export __UTILS_SOURCED__="" 
-# __LOGGING_SETUP__: 确保日志系统只被初始化一次。
-# 必须赋初始值，否则在 set -u 模式下会报错。
+# __LOGGING_SETUP__: 确保日志系统只被初始化一次。 (此变量在当前设计中未使用，可考虑移除)
 export __LOGGING_SETUP__="" 
 
 # BASE_DIR: 项目的根目录。由 _initialize_project_environment 确定并导出。
@@ -136,10 +135,22 @@ _get_original_user_and_home() {
     if [ "$ORIGINAL_USER" == "root" ]; then
         ORIGINAL_HOME="/root"
     else
+        # 更安全地获取原始用户的家目录
         if id -u "$ORIGINAL_USER" &>/dev/null; then 
-            ORIGINAL_HOME=$(eval echo "~$ORIGINAL_USER")
+            # 优先使用 getent，如果系统安装了它
+            if command -v getent &>/dev/null; then
+                ORIGINAL_HOME=$(getent passwd "$ORIGINAL_USER" | cut -d: -f6)
+            else
+                # 作为回退，直接从 /etc/passwd 解析 (不够健壮，但比 eval 好)
+                ORIGINAL_HOME=$(grep "^$ORIGINAL_USER:" /etc/passwd | cut -d: -f6)
+            fi
+
+            if [[ -z "$ORIGINAL_HOME" ]]; then
+                 echo "${COLOR_YELLOW}Warning:${COLOR_RESET} Could not determine home directory for '$ORIGINAL_USER' via getent/grep. Falling back to current \$HOME." >&2
+                 ORIGINAL_HOME="$HOME" # 回退到当前 SHELL 的 $HOME
+            fi
         else
-            echo "${COLOR_RED}Error:${COLOR_RESET} Original user '$ORIGINAL_USER' not found or cannot get home directory. Falling back to current \$HOME." >&2
+            echo "${COLOR_RED}Error:${COLOR_RESET} Original user '$ORIGINAL_USER' not found. Falling back to current \$HOME." >&2
             ORIGINAL_HOME="$HOME" # 回退到当前 SHELL 的 $HOME
         fi
     fi
@@ -152,25 +163,19 @@ _get_original_user_and_home() {
 # 参数: $1 (level) - 日志级别 (例如 "INFO", "ERROR")。
 #       $2 (message) - 要记录的日志消息。
 # 说明: 通过 BASH_SOURCE 和 FUNCNAME 数组的固定索引来定位日志的原始调用源。
-#       调用链通常为: _log_message_core <- log_X <- 原始调用函数/脚本。
-#       因此，FUNCNAME[2] 和 BASH_SOURCE[2] 通常指向原始调用者。
+#       调用链通常为: _log_message_core <- log_X <- display_header_section <- 原始调用函数/脚本。
+#       因此，FUNCNAME[3] 和 BASH_SOURCE[3] 通常指向原始调用者（跳过display_header_section）。
+#       此方法对调用层级变化敏感，如果中间函数层级改变，索引需手动调整。
 _log_message_core() {
     local level="$1"
     local message="$2"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
     # --- 关键修正开始: 使用 BASH_SOURCE 和 FUNCNAME 数组索引定位调用源 ---
-    # FUNCNAME[0] = _log_message_core
-    # FUNCNAME[1] = log_info/warn/error/debug (定义在 utils.sh)
-    # FUNCNAME[2] = 原始调用函数名 (如果存在，定义在调用脚本或其内部)
-
-    # BASH_SOURCE[0] = utils.sh
-    # BASH_SOURCE[1] = utils.sh
-    # BASH_SOURCE[2] = 原始调用脚本路径
-
+    # 调整索引为 [3] 以跳过 display_header_section。
     local calling_source_name="unknown"
-    local source_func="${FUNCNAME[2]:-}"        # 尝试获取原始调用函数名
-    local source_file_path="${BASH_SOURCE[2]:-}" # 尝试获取原始调用文件路径
+    local source_func="${FUNCNAME[3]:-}"        # 尝试获取原始调用函数名
+    local source_file_path="${BASH_SOURCE[3]:-}" # 尝试获取原始调用文件路径
 
     # 优先使用函数名，如果存在且不是 shell 内部的伪函数 (如 "source", "main")
     if [[ -n "$source_func" && "$source_func" != "source" && "$source_func" != "main" ]]; then
@@ -194,7 +199,6 @@ _log_message_core() {
     esac
 
     # 1. 终端输出：带颜色的日志信息。
-    # ENABLE_COLORS:-true 保证在 main_config.sh 未加载时也能正常工作
     if [[ "${ENABLE_COLORS:-true}" == "true" ]]; then
         echo -e "${terminal_color_code}[$timestamp] [$level] [$calling_source_name] $message${COLOR_RESET}"
     else
@@ -202,10 +206,8 @@ _log_message_core() {
     fi
     
     # 2. 文件写入：纯文本日志信息。
-    # CURRENT_SCRIPT_LOG_FILE:- 保证在日志系统未完全初始化时也能正常工作
     if [[ -n "${CURRENT_SCRIPT_LOG_FILE:-}" ]]; then
-        echo "[$timestamp] [$level] [$calling_source_name] $message" | \
-            tee -a "${CURRENT_SCRIPT_LOG_FILE}" > /dev/null || \
+        echo "[$timestamp] [$level] [$calling_source_name] $message" >> "${CURRENT_SCRIPT_LOG_FILE}" || \
             echo "${COLOR_YELLOW}Warning:${COLOR_RESET} Failed to write log to file '${CURRENT_SCRIPT_LOG_FILE}'. Check permissions." >&2
     fi
 }
