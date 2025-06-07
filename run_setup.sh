@@ -64,7 +64,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # --- 主要逻辑 ---
 
 main() {
-    display_header_section "$PROJECT_NAME $PROJECT_VERSION"
+    display_header_section "$PROJECT_NAME $PROJECT_VERSION" "box" 80
     log_info "Welcome to the Arch Linux Post-Installation Setup script!"
     log_info "This script will guide you through configuring your Arch Linux system."
     log_info "All operations are logged to: ${CURRENT_SCRIPT_LOG_FILE}"
