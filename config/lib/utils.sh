@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/utils.sh
-# 版本: 2.0.0 (核心函数全面拆分重构，注释极致详尽)
+# 版本: 2.0.3 (优化变量声明：仅保留 utils.sh 内部管理和日志系统状态变量)
 # 日期: 2025-06-08
 # 描述: 核心通用函数库。
 #       提供项目运行所需的基础功能，包括日志记录、用户上下文识别、权限检查辅助、
@@ -19,9 +19,12 @@
 # - 增强的头部显示函数 (display_header_section) 支持多种样式。
 # ------------------------------------------------------------------------------
 # 变更记录:
-# v1.9.1 - 2025-06-08 - 核心日志函数 _log_message_core 拆分增强。
-# v2.0.0 - 2025-06-08 - **根据您的要求，对所有函数注释进行极致详尽的完善，**
-#                      **特别是 _log_message_core 函数，详细说明其依赖、参数、返回值和使用方法。**
+# v2.0.0 - 2025-06-08 - 核心函数全面拆分重构，注释极致详尽。
+# v2.0.1 - 2025-06-08 - 优化变量声明：移除 utils.sh 顶部不必要的全局 export 变量声明。
+# v2.0.2 - 2025-06-08 - 优化变量声明：将 CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE
+#                      的声明保留在 utils.sh，因为它们是日志模块的动态输出。
+# v2.0.3 - 2025-06-08 - **进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。**
+#                      **其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。**
 # ==============================================================================
 
 # 严格模式：
@@ -31,32 +34,15 @@
 set -euo pipefail
 
 # ==============================================================================
-# 全局标志与变量声明 (由 environment_setup.sh 负责赋值和导出)
+# 全局标志与变量声明 (仅限 utils.sh 内部管理和核心日志系统状态变量)
 # ------------------------------------------------------------------------------
 
 # __UTILS_SOURCED__: 防止 utils.sh 在同一个 shell 进程中被重复 source 导致函数重复定义。
 # (此变量不会被导出，以确保在新的子进程中能重新加载 utils.sh 的函数定义)
 __UTILS_SOURCED__="" 
 
-# BASE_DIR: 项目的绝对根目录路径。由调用脚本的顶部引导块确定，并通过 export 传递。
-export BASE_DIR               
-
 # CURRENT_SCRIPT_LOG_FILE: 当前脚本实例的专属日志文件路径。由 initialize_logging_system 函数确定并导出。
 export CURRENT_SCRIPT_LOG_FILE
-
-# ORIGINAL_USER: 调用 sudo 的原始用户用户名。由 _get_original_user_and_home 函数确定并导出。
-export ORIGINAL_USER          
-# ORIGINAL_HOME: ORIGINAL_USER 的家目录绝对路径。由 _get_original_user_and_home 函数确定并导出。
-export ORIGINAL_HOME          
-
-# CONFIG_DIR: 项目配置目录的绝对路径。由 environment_setup.sh 定义并导出。
-export CONFIG_DIR
-# LIB_DIR: 项目库目录的绝对路径。由 environment_setup.sh 定义并导出。
-export LIB_DIR
-# MODULES_DIR: 项目模块目录的绝对路径。由 environment_setup.sh 定义并导出。
-export MODULES_DIR
-# ASSETS_DIR: 项目资产目录的绝对路径。由 environment_setup.sh 定义并导出。
-export ASSETS_DIR
 
 # CURRENT_DAY_LOG_DIR: 当前日期日志目录的绝对路径（例如：/path/to/logs/YYYY-MM-DD）。
 # 由 initialize_logging_system 函数内部定义并导出。
@@ -180,7 +166,7 @@ _try_set_dir_acl() {
 # 说明: 作为 setfacl 的回退方案。
 # 依赖: id, chown, chmod (系统命令)。
 # 参数: $1 (dir_path) - 目录路径。
-#       $2 (user) - 用户 (用于 chown，尝试更改为 root:$user_primary_group)。
+#       $2 (user) - 用户 (用于 chown，更改为 root:$user_primary_group)。
 # 返回: 0 (成功) 或 1 (失败)。
 _try_chown_chmod_dir_group_write() {
     local dir_path="$1"
@@ -490,6 +476,7 @@ _log_message_core() {
     # 文件日志始终包含完整前缀，且不带颜色码，确保可追踪性。
     # `_strip_ansi_colors` 返回一个字符串，不需要外部 echo -e。
     # 如果写入失败，会输出警告到标准错误。
+    # CURRENT_SCRIPT_LOG_FILE 变量由 initialize_logging_system 函数设置并导出。
     if [[ -n "${CURRENT_SCRIPT_LOG_FILE:-}" ]]; then
         echo "[$timestamp] [$level] [$calling_source_name] $(_strip_ansi_colors "$message")" >> "${CURRENT_SCRIPT_LOG_FILE}" || \
             echo "${COLOR_YELLOW}Warning:${COLOR_RESET} Failed to write log to file '${CURRENT_SCRIPT_LOG_FILE}'. Check permissions." >&2
@@ -517,6 +504,7 @@ initialize_logging_system() {
     fi
 
     # 2. 定义当前运行的日志日期目录 (在此函数内部定义并导出) - 调用辅助函数 _get_current_day_log_dir
+    # 格式为 YYYY-MM-DD，用于组织日志文件。
     if ! _get_current_day_log_dir; then
         log_error "Fatal: Could not determine current day's log directory. Logging cannot proceed."
         return 1 # 获取目录失败，返回 1
@@ -582,6 +570,8 @@ _get_current_day_log_dir() {
 
 # --- 对外暴露的日志级别封装函数 ---
 # 这些函数是外部脚本与日志系统交互的主要接口，调用 _log_message_core 进行实际处理。
+# 参数: $1 (message) - 要记录的日志消息。
+#       $2 (optional_color_code) - 仅 log_summary 接受，用于指定颜色。
 log_info() { _log_message_core "INFO" "$1"; }
 log_warn() { _log_message_core "WARN" "$1" >&2; }
 log_error() { _log_message_core "ERROR" "$1" >&2; }
@@ -614,7 +604,7 @@ check_root_privileges() {
 # 说明: 其日志源通常希望显示调用脚本名而非函数名，
 #       故其函数名已被添加到 _log_message_core 的内部工具函数列表中。
 #       此函数通过调用 log_summary 来实现多色 SUMMARY 级别输出。
-# 依赖: _center_text(), log_summary() (内部辅助函数)。
+# 依赖: _center_text() (内部辅助函数), log_summary()。
 # 参数: $1 (title) - 要显示的标题文本。
 #       $2 (style) - 可选，标题样式 ("default", "box", "decorated")。
 #       $3 (width) - 可选，标题总宽度 (默认为 60)。

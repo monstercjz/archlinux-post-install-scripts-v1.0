@@ -2,21 +2,20 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/environment_setup.sh
-# 版本: 1.0.21 (最终版：协调所有全局变量的赋值)
+# 版本: 1.0.18 (最终完善版：统一日志系统初始化，应用 SUMMARY 级别)
 # 日期: 2025-06-08
 # 描述: 核心环境设置脚本。由所有入口脚本的顶部引导块调用。
 #       负责在 BASE_DIR 确定后，完成项目运行环境的后续初始化。
 # ------------------------------------------------------------------------------
 # 职责:
 #   1. 执行 Root 权限检查 (最早执行)。
-#   2. 验证 BASE_DIR 是否已由调用脚本确定。
-#   3. 加载主配置文件 (main_config.sh)。
-#   4. 定义并导出核心子目录变量 (CONFIG_DIR, LIB_DIR, MODULES_DIR, ASSETS_DIR)。
-#   5. 导入核心工具函数库 (utils.sh)，并进行错误检查。
-#   6. 获取并导出调用 sudo 的原始用户及其家目录 (ORIGINAL_USER, ORIGINAL_HOME)。
-#   7. 赋值 DOTFILES_LOCAL_PATH。
-#   8. 调用 initialize_logging_system 初始化日志系统。
-#   9. 显示初始化统计，并等待用户确认。
+#   2. 健壮地确定项目根目录 (BASE_DIR)。
+#   3. 定义核心子目录变量 (CONFIG_DIR, LIB_DIR 等)。
+#   4. 导入核心工具函数库 (utils.sh)，并进行错误检查。
+#   5. 获取调用 sudo 的原始用户及其家目录 (ORIGINAL_USER, ORIGINAL_HOME)。
+#   6. 加载主配置文件 (main_config.sh)。
+#   7. 调用 initialize_logging_system 初始化日志系统。
+#   8. 显示初始化统计，并等待用户确认。
 # ------------------------------------------------------------------------------
 # 使用方法: (此文件不应被直接调用，而是由各脚本的顶部引导块 source)
 #   source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoint"
@@ -41,7 +40,6 @@
 # v1.0.16 - 2025-06-08 - 引入并应用新的颜色 (例如 COLOR_PURPLE) 用于总结性输出。
 # v1.0.17 - 2025-06-08 - 应用新的 SUMMARY 日志级别。
 # v1.0.18 - 2025-06-08 - **统一调用 initialize_logging_system() 函数来完成日志系统初始化。**
-# v1.0.21 - 2025-06-08 - **最终优化：调整main_confing调用顺序。**
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -68,7 +66,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mError: This script must be run with root privileges (using 'sudo').\033[0m" >&2
     echo -e "\033[0;31mPlease run: sudo $(basename "$_caller_script_path")\033[0m" >&2
-    echo -e "\033[0;31m=====================================================================${COLOR_RESET}\033[0m" >&2
+    echo -e "\033[0;31m=====================================================================\033[0m" >&2
     read -rp "Press any key to exit..." -n 1
     echo "" # 打印一个换行符，使提示符在新行显示
     exit 1
@@ -87,37 +85,25 @@ if [ -z "${BASE_DIR+set}" ] || [ -z "$BASE_DIR" ]; then
 fi
 
 # ==============================================================================
-# 阶段 2: 加载配置与导入工具 (为后续步骤提供基础支持)
+# 阶段 2: 核心变量定义与 utils.sh 导入 (为后续步骤提供基础支持)
 # ==============================================================================
 
-# --- 3. 加载主配置文件 (main_config.sh) ---
-# 此文件会声明所有全局 export 变量，并为静态配置项提供默认值。
-main_config_path="${BASE_DIR}/config/main_config.sh" 
-echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing main_config.sh from '$main_config_path'..." >&2
-if [[ ! -f "$main_config_path" || ! -r "$main_config_path" ]]; then
-    echo -e "\033[0;31m=====================================================================\033[0m" >&2
-    echo -e "\033[0;31mFatal Error:\033[0m Main configuration file not found or not readable: '$_utils_path'." >&2
-    echo -e "\033[0;31mPlease ensure '$main_config_path' exists and has read permissions.${_C_RESET}\033[0m" >&2
-    read -rp "Press any key to exit..." -n 1
-    echo "" 
-    exit 1
-fi
-. "$main_config_path" # <--- 加载所有 main_config.sh 中声明的变量和默认值
-
-# --- 4. 定义核心子目录变量 ---
-# 这些变量的值依赖于 BASE_DIR，由 environment_setup.sh 在运行时计算并 export。
-# 注意：这些变量在 main_config.sh 中有声明，这里是再次声明和赋值。
+# --- 3. 定义核心子目录变量 ---
+# 这些变量在 BASE_DIR 确定后立即定义并导出，以便 utils.sh 和后续所有脚本都能使用。
 export CONFIG_DIR="${BASE_DIR}/config"
 export LIB_DIR="${CONFIG_DIR}/lib"
 export MODULES_DIR="${CONFIG_DIR}/modules"
 export ASSETS_DIR="${CONFIG_DIR}/assets" 
-# 注意：此时还不能使用 log_debug，因为 utils.sh 尚未加载。
+# (此处不使用 log_debug，因为 utils.sh 尚未完全加载，后续会统一打印)
 
-# --- 5. 导入核心工具函数库 (utils.sh) ---
-# utils.sh 内部不声明全局 export 变量，仅使用它们。
+# --- 4. 导入核心工具函数库 (utils.sh) ---
+# 现在可以安全地通过 LIB_DIR 引用 utils.sh。
 _utils_path="${LIB_DIR}/utils.sh" 
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing utils.sh from '$_utils_path'..." >&2
+
+# 检查 utils.sh 文件是否存在且可读。
 if [[ ! -f "$_utils_path" || ! -r "$_utils_path" ]]; then
+    # 此时 utils.sh 未加载，无法使用 handle_error。直接 echo 和退出。
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mFatal Error:\033[0m Core utility file not found or not readable: '$_utils_path'." >&2
     echo -e "\033[0;31mPlease ensure the project structure is correct and file permissions allow reading.\033[0m" >&2
@@ -128,26 +114,35 @@ fi
 source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
 # ==============================================================================
-# 阶段 3: 基于已加载的 utils.sh 和配置，初始化剩余环境
+# 阶段 3: 基于 utils.sh 和核心变量，初始化剩余环境
 # ==============================================================================
 
 # 现在 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
-log_info "main_config.sh loaded. PROJECT_NAME: $PROJECT_NAME, LOG_ROOT: $LOG_ROOT, DEBUG_MODE: $DEBUG_MODE."
 log_info "utils.sh sourced. Core utilities and logging functions are now available."
 log_debug "Root privileges confirmed." 
 log_info "BASE_DIR confirmed: '$BASE_DIR'."
 log_debug "Core directory variables defined: CONFIG_DIR=$CONFIG_DIR, LIB_DIR=$LIB_DIR, MODULES_DIR=$MODULES_DIR, ASSETS_DIR=$ASSETS_DIR"
 
-# --- 6. 获取调用 sudo 的原始用户和其家目录 (ORIGINAL_USER, ORIGINAL_HOME) ---
-# _get_original_user_and_home 内部会根据 SUDO_USER 动态计算并 export ORIGINAL_USER, ORIGINAL_HOME。
-# 这将是 ORIGINAL_USER 和 ORIGINAL_HOME 的首次赋值。
+# --- 5. 获取调用 sudo 的原始用户和其家目录 (ORIGINAL_USER, ORIGINAL_HOME) ---
 log_debug "Determining original user and home directory..."
-# if [ -z "${ORIGINAL_USER+set}" ] || [ -z "$ORIGINAL_USER" ]; then # 每次都调用，确保值正确
-_get_original_user_and_home # 此函数内部会 export ORIGINAL_USER 和 ORIGINAL_HOME
-log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
-# else
-#     log_debug "ORIGINAL_USER already set in environment: $ORIGINAL_USER."
-# fi
+# 调用 utils.sh 中的 _get_original_user_and_home 函数获取值。
+if [ -z "${ORIGINAL_USER+set}" ]; then 
+    _get_original_user_and_home 
+    log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
+else
+    log_debug "ORIGINAL_USER already set in environment: $ORIGINAL_USER."
+fi
+
+# --- 6. 加载主配置文件 (main_config.sh) ---
+# main_config.sh 中的变量（如 LOG_ROOT, ENABLE_COLORS, DEBUG_MODE）必须被导出，以便子进程继承。
+main_config_path="${CONFIG_DIR}/main_config.sh" 
+log_debug "Sourcing main_config.sh from '$main_config_path'..."
+# 检查 main_config.sh 文件是否存在且可读。
+if [[ ! -f "$main_config_path" || ! -r "$main_config_path" ]]; then
+    handle_error "Fatal: Main configuration file not found or not readable: '$main_config_path'."
+fi
+. "$main_config_path" # source the file
+log_info "main_config.sh loaded. PROJECT_NAME: $PROJECT_NAME, LOG_ROOT: $LOG_ROOT, DEBUG_MODE: $DEBUG_MODE."
 
 
 # ==============================================================================
@@ -155,7 +150,7 @@ log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
 # ==============================================================================
 
 # --- 7. 调用 initialize_logging_system 初始化日志系统 ---
-# initialize_logging_system 内部会定义并 export CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE。
+# 此函数将负责定义 CURRENT_DAY_LOG_DIR、确保日志目录权限、创建具体日志文件等。
 log_debug "Initializing logging system fully..."
 if ! initialize_logging_system "$_caller_script_path"; then 
     handle_error "Fatal: Failed to initialize logging system. Script cannot proceed."
@@ -167,9 +162,8 @@ log_info "Logging system fully initialized. Current script log file: '$CURRENT_S
 # 阶段 5: 初始化统计与用户确认阶段
 # ==============================================================================
 
-# --- . 显示初始化统计，并等待用户确认 ---
-display_header_section "Environment Setup Summary" "box" 80 "${COLOR_CYAN}" "${COLOR_BOLD}${COLOR_YELLOW}"
-
+# --- 8. 显示初始化统计，并等待用户确认 ---
+display_header_section "Environment Setup Summary" "box" 80
 log_summary "--------------------------------------------------"
 log_summary "Project: ${PROJECT_NAME} ${PROJECT_VERSION}"
 log_summary "Author: ${PROJECT_AUTHOR}"
@@ -177,7 +171,7 @@ log_summary "Description: ${PROJECT_DESCRIPTION}"
 log_summary "--------------------------------------------------"
 log_summary "Running as: root (Original User: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
 log_summary "Project Root: ${BASE_DIR}"
-log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
+log_summary "Log Directory: ${CURRENT_DAY_LOG_DIR}"
 log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
 log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
 log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
@@ -186,6 +180,6 @@ log_summary "--------------------------------------------------"
 log_info "Environment setup completed successfully. Please review the above details and the log file."
 read -rp "$(echo -e "${COLOR_YELLOW}Press Enter to continue or Ctrl+C to abort...${COLOR_RESET}")"
 
-# 标记此初始化脚本已被加载 (不导出)
+# 标记此初始化脚本已被加载 (此变量不导出，仅在当前进程中有效)
 __ENVIRONMENT_SETUP_SOURCED__="true"
 log_debug "Environment setup complete. All core variables exported."
