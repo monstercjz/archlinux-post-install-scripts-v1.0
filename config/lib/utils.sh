@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/utils.sh
-# 版本: 1.3.1 (日志核心逻辑更新为基于索引)
+# 版本: 1.3.1 (日志核心逻辑更新为增强型基于索引，跳过工具函数)
 # 日期: 2025-06-07
 # 描述: 核心通用函数库。
 #       提供项目运行所需的基础功能，包括依赖加载、日志记录、权限检查、
@@ -32,8 +32,8 @@ set -euo pipefail
 # __UTILS_SOURCED__: 防止 utils.sh 被重复 source 导致函数重复定义。
 # 必须赋初始值，否则在 set -u 模式下会报错。
 export __UTILS_SOURCED__="" 
-# __LOGGING_SETUP__: 确保日志系统只被初始化一次。 (此变量在当前设计中未使用，可考虑移除)
-export __LOGGING_SETUP__="" 
+# __LOGGING_SETUP__: 确保日志系统只被初始化一次。 (此变量在当前设计中未使用，已移除)
+# export __LOGGING_SETUP__="" 
 
 # BASE_DIR: 项目的根目录。由 _initialize_project_environment 确定并导出。
 # 仅声明导出，不在此处赋值，以避免覆盖已从父 shell 导出的值。
@@ -158,36 +158,75 @@ _get_original_user_and_home() {
     echo "Detected original user: $ORIGINAL_USER (Home: $ORIGINAL_HOME)" >&2 # 早期输出
 }
 
-# _log_message_core() - 已修改为使用 BASH_SOURCE 和 FUNCNAME 索引
+# _log_message_core() - 增强型，通过遍历 BASH_SOURCE 和 FUNCNAME 跳过工具函数
 # 功能: 核心日志记录逻辑，负责格式化日志信息并输出到终端和文件。
 # 参数: $1 (level) - 日志级别 (例如 "INFO", "ERROR")。
 #       $2 (message) - 要记录的日志消息。
-# 说明: 通过 BASH_SOURCE 和 FUNCNAME 数组的固定索引来定位日志的原始调用源。
-#       调用链通常为: _log_message_core <- log_X <- display_header_section <- 原始调用函数/脚本。
-#       因此，FUNCNAME[3] 和 BASH_SOURCE[3] 通常指向原始调用者（跳过display_header_section）。
-#       此方法对调用层级变化敏感，如果中间函数层级改变，索引需手动调整。
+# 说明: 遍历 BASH_SOURCE 和 FUNCNAME 数组，跳过所有被视为内部工具链的函数，
+#       以识别出最上层的业务逻辑调用源（函数名或脚本名）。
 _log_message_core() {
     local level="$1"
     local message="$2"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
-    # --- 关键修正开始: 使用 BASH_SOURCE 和 FUNCNAME 数组索引定位调用源 ---
-    # 调整索引为 [3] 以跳过 display_header_section。
     local calling_source_name="unknown"
-    local source_func="${FUNCNAME[3]:-}"        # 尝试获取原始调用函数名
-    local source_file_path="${BASH_SOURCE[3]:-}" # 尝试获取原始调用文件路径
+    local stack_idx=0
+    local found_source=false
 
-    # 优先使用函数名，如果存在且不是 shell 内部的伪函数 (如 "source", "main")
-    if [[ -n "$source_func" && "$source_func" != "source" && "$source_func" != "main" ]]; then
-        calling_source_name="$source_func"
-    # 否则，如果文件路径存在，使用文件名
-    elif [[ -n "$source_file_path" ]]; then
-        calling_source_name=$(basename "$source_file_path")
-    # 如果以上都失败，回退到最顶层执行的脚本名 (最可靠的通用回退)
-    else
+    # 定义所有应被跳过的内部日志/工具函数名
+    # 当新增任何调用 log_X 的 utils.sh 内部辅助函数时，都应将其添加到此列表。
+    local -a internal_utility_functions=(
+        "_log_message_core"
+        "log_info"
+        "log_warn"
+        "log_error"
+        "log_debug"
+        "display_header_section" # <-- 确保添加了 display_header_section
+        # 未来如果添加例如：_check_dependency(), _install_package() 等，如果它们内部有日志，
+        # 且你不希望它们作为日志源，也应添加到此列表。
+    )
+
+    # 从最内层函数 (_log_message_core) 开始向上遍历 FUNCNAME 数组
+    # ${#FUNCNAME[@]} 是数组长度， FUNCNAME[0] 是当前函数，以此类推
+    # 栈顶通常是 ${#FUNCNAME[@]} - 1
+    for (( stack_idx=0; stack_idx < ${#FUNCNAME[@]}; stack_idx++ )); do
+        local current_func_name="${FUNCNAME[stack_idx]:-}"
+        local current_file_path="${BASH_SOURCE[stack_idx]:-}"
+
+        local is_internal_func=false
+        # 检查当前函数名是否在内部工具函数列表中
+        for internal_func in "${internal_utility_functions[@]}"; do
+            if [[ "$current_func_name" == "$internal_func" ]]; then
+                is_internal_func=true
+                break
+            fi
+        done
+
+        # 如果是内部工具函数，则跳过并继续向上查找
+        if "$is_internal_func"; then
+            continue
+        fi
+
+        # 到达这里，说明找到第一个不是内部工具函数/日志包装器的函数/脚本
+        # 这就是我们希望显示为日志来源的“业务逻辑”调用者。
+        # 优先使用函数名（如果存在且不是 shell 内部的伪函数）
+        if [[ -n "$current_func_name" && "$current_func_name" != "source" && "$current_func_name" != "main" ]]; then
+            calling_source_name="$current_func_name"
+            found_source=true
+            break # 找到源，退出循环
+        # 否则，如果文件路径存在，使用文件名
+        elif [[ -n "$current_file_path" ]]; then
+            calling_source_name=$(basename "$current_file_path")
+            found_source=true
+            break # 找到源，退出循环
+        fi
+    done
+
+    # 最终回退：如果循环结束仍未找到合适的源（理论上不应该发生，除非堆栈非常浅）
+    # 回退到最顶层执行的脚本名 (最可靠的通用回退)。
+    if ! "$found_source"; then
         calling_source_name=$(basename "${BASH_SOURCE[-1]}")
     fi
-    # --- 关键修正结束 ---
 
     local terminal_color_code="${COLOR_RESET}"
     case "$level" in
@@ -287,7 +326,6 @@ setup_logging() {
     echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} Initializing logging for '$script_name'. Log file will be: '$CURRENT_SCRIPT_LOG_FILE'" >&2
     
     # 1. 创建日志文件 (由当前用户，即 root)
-    # 不使用 sudo，因为它由 root 运行
     if ! touch "$CURRENT_SCRIPT_LOG_FILE"; then 
         echo "${COLOR_RED}Error:${COLOR_RESET} Failed to create log file '$CURRENT_SCRIPT_LOG_FILE' as root. Logging might fail." >&2
         return 1 # 返回失败，但脚本可能继续运行
@@ -300,7 +338,6 @@ setup_logging() {
 
     # 3. 尝试将日志文件所有权调整给 ORIGINAL_USER
     if id -u "$ORIGINAL_USER" &>/dev/null; then # 确保 ORIGINAL_USER 存在
-        # 使用 chown，因为当前脚本以 root 运行
         if ! chown "$ORIGINAL_USER" "$CURRENT_SCRIPT_LOG_FILE"; then
             echo "${COLOR_YELLOW}Warning:${COLOR_RESET} Failed to change ownership of '$CURRENT_SCRIPT_LOG_FILE' to '$ORIGINAL_USER'. File will be owned by root." >&2
         fi
@@ -340,6 +377,7 @@ check_root_privileges() {
 # 参数: $1 (title) - 要显示的标题文本。
 display_header_section() {
     local title="$1"
+    # 这里调用 log_info。_log_message_core 会智能地将其识别为工具函数并跳过。
     log_info "=================================================="
     log_info ">>> $title"
     log_info "=================================================="
@@ -350,7 +388,7 @@ display_header_section() {
 # ------------------------------------------------------------------------------
 
 # _ensure_log_dir_user_owned()
-# 功能: 确保日志根目录存在，并确保 ORIGINAL_USER 对其有写入权限。
+# 功能: 确保日志根目录存在并对 ORIGINAL_USER 有写入权限。
 # 说明: 这个函数在日志系统完全初始化之前被调用，因此它不能使用 log() 函数。
 #       它会直接使用 echo 输出信息。优先使用 setfacl 提供精确权限。
 # 参数: $1 (dir_path) - 要检查/创建的日志根目录路径。
