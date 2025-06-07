@@ -1,0 +1,18 @@
+[2025-06-07 15:24:58] [INFO] [config/lib/environment_setup.sh] Logging system fully initialized. Current script log file: '/home/cjz/archlinux-post-install-scripts-v1.0/logs/2025-06-07/main_menu-20250607_152458.log'.
+[2025-06-07 15:24:58] [DEBUG] [config/lib/environment_setup.sh] Environment setup complete. All core variables exported.
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] Starting Main Menu for Arch Linux Post-Installation Setup v1.0.
+[2025-06-07 15:24:58] [DEBUG] [config/main_menu.sh] Detected BASE_DIR: /home/cjz/archlinux-post-install-scripts-v1.0
+[2025-06-07 15:24:58] [DEBUG] [config/main_menu.sh] Detected ORIGINAL_USER: cjz (Home: /home/cjz)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] ==================================================
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] >>> Main Configuration Menu
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] ==================================================
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] Please choose a section to configure:
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] --------------------------------------------------
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   1. System Base Configuration      (网络、镜像、时区等)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   2. Package Management             (AUR 助手、Pacman Hook)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   3. User Environment Setup         (Shell、点文件、编辑器等)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   4. Software Installation          (常用、特定应用)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   5. Cleanup and Finish             (清理、生成报告)
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh]   0. Exit Script
+[2025-06-07 15:24:58] [INFO] [config/main_menu.sh] --------------------------------------------------
+[2025-06-07 15:25:04] [INFO] [process_main_menu_choice] Exiting the setup script. Goodbye!

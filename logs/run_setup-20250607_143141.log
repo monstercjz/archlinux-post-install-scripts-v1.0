@@ -1,0 +1,26 @@
+[2025-06-07 14:31:41] [INFO] [config/lib/environment_setup.sh] Logging system fully initialized. Current script log file: '/home/cjz/archlinux-post-install-scripts-v1.0/logs/run_setup-20250607_143141.log'.
+[2025-06-07 14:31:41] [DEBUG] [config/lib/environment_setup.sh] Environment setup complete. All core variables exported.
+[2025-06-07 14:31:41] [INFO] [run_setup.sh] ==================================================
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] >>> Arch Linux Post-Installation Setup v1.0
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] ==================================================
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] Welcome to the Arch Linux Post-Installation Setup script!
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] This script will guide you through configuring your Arch Linux system.
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] All operations are logged to: /home/cjz/archlinux-post-install-scripts-v1.0/logs/run_setup-20250607_143141.log
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] Running as user: root (Original user: cjz, Home: /home/cjz)
+[2025-06-07 14:31:42] [INFO] [run_setup.sh] Starting main configuration menu...
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] utils.sh sourced. Core utilities and logging functions are now available.
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Root privileges confirmed.
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] BASE_DIR confirmed: '/home/cjz/archlinux-post-install-scripts-v1.0'.
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Core directory variables defined: CONFIG_DIR=/home/cjz/archlinux-post-install-scripts-v1.0/config, LIB_DIR=/home/cjz/archlinux-post-install-scripts-v1.0/config/lib, MODULES_DIR=/home/cjz/archlinux-post-install-scripts-v1.0/config/modules, ASSETS_DIR=/home/cjz/archlinux-post-install-scripts-v1.0/config/assets
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Determining original user and home directory...
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] ORIGINAL_USER already set in environment: cjz.
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Sourcing main_config.sh from '/home/cjz/archlinux-post-install-scripts-v1.0/config/main_config.sh'...
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] main_config.sh loaded. PROJECT_NAME: Arch Linux Post-Installation Setup, LOG_ROOT: /home/cjz/archlinux-post-install-scripts-v1.0/logs, DEBUG_MODE: true.
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Ensuring log directory '/home/cjz/archlinux-post-install-scripts-v1.0/logs' is prepared for user 'cjz'...
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] Checking/creating log directory '/home/cjz/archlinux-post-install-scripts-v1.0/logs' for user 'cjz'...
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] Log directory '/home/cjz/archlinux-post-install-scripts-v1.0/logs' is writable by 'cjz'.
+[2025-06-07 14:31:42] [INFO] [config/lib/environment_setup.sh] Log directory '/home/cjz/archlinux-post-install-scripts-v1.0/logs' confirmed ready.
+[2025-06-07 14:31:42] [DEBUG] [config/lib/environment_setup.sh] Initializing logging system for current script: '/home/cjz/archlinux-post-install-scripts-v1.0/config/main_menu.sh'...
+[2025-06-07 14:59:14] [INFO] [run_setup.sh] Main menu completed successfully or user chose to exit.
+[2025-06-07 14:59:14] [INFO] [run_setup.sh] Setup process finished. Please review the log file for details.
+[2025-06-07 14:59:14] [INFO] [exit_script] Exiting Arch Linux Post-Installation Setup script.
