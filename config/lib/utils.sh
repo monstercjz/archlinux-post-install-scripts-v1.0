@@ -495,33 +495,40 @@ _log_message_core() {
 initialize_logging_system() {
     local caller_script_path="$1"
     local script_name=$(basename "$caller_script_path")
+    log_info "------ 开始为 '$script_name' 初始化日志系统 ------"
 
     # 1. 验证必要全局变量是否已设置 - 调用辅助函数 _validate_logging_prerequisites
     # 这些变量应已由 environment_setup.sh 在调用此函数前设置并导出。
+    log_debug "【Step 1/4】: 验证日志环境参数 (BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME)..."
     if ! _validate_logging_prerequisites; then
         # _validate_logging_prerequisites 内部会 echo 错误并 exit。
         return 1 # 理论上不会执行到，但作为安全措施。
     fi
+    log_info "【Step 1/4】: 日志环境参数验证成功."
 
     # 2. 定义当前运行的日志日期目录 (在此函数内部定义并导出) - 调用辅助函数 _get_current_day_log_dir
     # 格式为 YYYY-MM-DD，用于组织日志文件。
+    log_debug "【Step 2/4】: 创建当前日志日期目录 (YYYY-MM-DD)..."
     if ! _get_current_day_log_dir; then
-        log_error "Fatal: Could not determine current day's log directory. Logging cannot proceed."
+        echo "${COLOR_RED}Fatal Error:${COLOR_RESET} [utils.initialize_logging_system] Could not determine current day's log directory. Logging cannot proceed." >&2
         return 1 # 获取目录失败，返回 1
     fi
-    log_debug "Current day's log directory set to: '$CURRENT_DAY_LOG_DIR'."
+    # log_debug "Current day's log directory set to: '$CURRENT_DAY_LOG_DIR'."
+    log_info "【Step 2/4】: 成功创建日志目录: '$CURRENT_DAY_LOG_DIR'."
 
     # 3. 确保日志根目录（包括日期目录）存在并对 ORIGINAL_USER 有写入权限
     log_debug "Ensuring log directory '$CURRENT_DAY_LOG_DIR' is prepared for user '$ORIGINAL_USER'..."
+    log_debug "【Step 3/4】: 检查用户： '$ORIGINAL_USER' 对目录： '$CURRENT_DAY_LOG_DIR'  是否有写权限..."
     if ! _ensure_log_dir_user_owned "$CURRENT_DAY_LOG_DIR" "$ORIGINAL_USER"; then
         log_error "Fatal: Could not prepare log directory '$CURRENT_DAY_LOG_DIR' for '$ORIGINAL_USER'. Logging will not function correctly."
         return 1 # 目录权限失败，返回 1
     fi
-    log_info "Log directory '$CURRENT_DAY_LOG_DIR' confirmed ready."
+    # log_info "Log directory '$CURRENT_DAY_LOG_DIR' confirmed ready."
+    log_info "【Step 3/4】: 确定了目录: '$CURRENT_DAY_LOG_DIR' 已经存在，并且用户： '$ORIGINAL_USER' 拥有该目录的读写权限."
 
     # 4. 为当前脚本创建具体的日志文件 - 调用辅助函数 _create_and_secure_log_file
-    log_debug "Initializing logging system for current script: '$caller_script_path'..."
-    
+    # log_debug "Initializing logging system for current script: '$caller_script_path'..."
+    log_debug "【Step 4/4】: 为当前脚本： '$script_name' 创建具体的日志文件..."
     # 构建当前脚本的日志文件路径，包含脚本名称和精确到秒的时间戳。
     CURRENT_SCRIPT_LOG_FILE="$CURRENT_DAY_LOG_DIR/${script_name%.*}-$(date +%Y%m%d_%H%M%S).log"
     export CURRENT_SCRIPT_LOG_FILE
@@ -535,7 +542,8 @@ initialize_logging_system() {
         log_error "Failed to create and secure log file '$CURRENT_SCRIPT_LOG_FILE'. Logging might fail."
         return 1 # 文件创建或权限设置失败，返回 1
     fi
-    log_info "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'."
+    log_info "【Step 4/4】: 成功创建日志文件: '$CURRENT_SCRIPT_LOG_FILE'."
+    log_info "------ 成功为 '$script_name' 初始化日志系统，日志文件为： '$CURRENT_SCRIPT_LOG_FILE'. ------ "
     return 0 # 成功
 }
 
