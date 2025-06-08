@@ -52,6 +52,7 @@ _caller_script_path="$1"
 
 # 防止此初始化脚本在同一个 shell 进程中被重复 source (如果已被加载，则直接返回)。
 # (此变量不会被导出，以确保在新的子进程中能重新加载)
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] 检查environment_setup是否重复加载..." >&2
 __ENVIRONMENT_SETUP_SOURCED__="${__ENVIRONMENT_SETUP_SOURCED__:-}"
 if [ -n "$__ENVIRONMENT_SETUP_SOURCED__" ]; then
     return 0 
@@ -63,6 +64,7 @@ fi
 
 # --- 1. Root 权限检查 ---
 # 如果不是 root 用户，则打印带颜色的错误信息，等待用户按键后退出。
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【1/7】 检查是否以root权限执行..." >&2
 if [[ "$(id -u)" -ne 0 ]]; then
     # 使用硬编码的 ANSI 颜色码，因为此时 utils.sh 尚未加载。
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
@@ -76,6 +78,7 @@ fi
 
 # --- 2. 验证 BASE_DIR 是否已由调用脚本确定 ---
 # 此时 BASE_DIR 应该已经被调用脚本的顶部引导块设置并导出。
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【2/7】 检查是否可以确定根目录路径值..." >&2
 if [ -z "${BASE_DIR+set}" ] || [ -z "$BASE_DIR" ]; then
     # 使用硬编码的 ANSI 颜色码，因为 utils.sh 尚未加载。
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
@@ -93,7 +96,8 @@ fi
 # --- 3. 加载主配置文件 (main_config.sh) ---
 # 此文件会声明所有全局 export 变量，并为静态配置项提供默认值。
 main_config_path="${BASE_DIR}/config/main_config.sh" 
-echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing main_config.sh from '$main_config_path'..." >&2
+# echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing main_config.sh from '$main_config_path'..." >&2
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【3/7】 加载配置文件：main_config 从 '$main_config_path'..." >&2
 if [[ ! -f "$main_config_path" || ! -r "$main_config_path" ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mFatal Error:\033[0m Main configuration file not found or not readable: '$_utils_path'." >&2
@@ -107,6 +111,7 @@ fi
 # --- 4. 定义核心子目录变量 ---
 # 这些变量的值依赖于 BASE_DIR，由 environment_setup.sh 在运行时计算并 export。
 # 注意：这些变量在 main_config.sh 中有声明，这里是再次声明和赋值。
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【4/7】 补全生成项目各资源文件夹路径..." >&2
 export CONFIG_DIR="${BASE_DIR}/config"
 export LIB_DIR="${CONFIG_DIR}/lib"
 export MODULES_DIR="${CONFIG_DIR}/modules"
@@ -116,7 +121,8 @@ export ASSETS_DIR="${CONFIG_DIR}/assets"
 # --- 5. 导入核心工具函数库 (utils.sh) ---
 # utils.sh 内部不声明全局 export 变量，仅使用它们。
 _utils_path="${LIB_DIR}/utils.sh" 
-echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing utils.sh from '$_utils_path'..." >&2
+# echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing utils.sh from '$_utils_path'..." >&2
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【5/7】 加载核心工具库：utils.sh 从 '$_utils_path'..." >&2
 if [[ ! -f "$_utils_path" || ! -r "$_utils_path" ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mFatal Error:\033[0m Core utility file not found or not readable: '$_utils_path'." >&2
@@ -131,6 +137,7 @@ source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 # 阶段 3: 基于已加载的 utils.sh 和配置，初始化剩余环境
 # ==============================================================================
 
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
 # 现在 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 log_info "main_config.sh loaded. PROJECT_NAME: $PROJECT_NAME, LOG_ROOT: $LOG_ROOT, DEBUG_MODE: $DEBUG_MODE."
 log_info "utils.sh sourced. Core utilities and logging functions are now available."
@@ -141,7 +148,7 @@ log_debug "Core directory variables defined: CONFIG_DIR=$CONFIG_DIR, LIB_DIR=$LI
 # --- 6. 获取调用 sudo 的原始用户和其家目录 (ORIGINAL_USER, ORIGINAL_HOME) ---
 # _get_original_user_and_home 内部会根据 SUDO_USER 动态计算并 export ORIGINAL_USER, ORIGINAL_HOME。
 # 这将是 ORIGINAL_USER 和 ORIGINAL_HOME 的首次赋值。
-log_debug "Determining original user and home directory..."
+# log_debug "Determining original user and home directory..."
 # if [ -z "${ORIGINAL_USER+set}" ] || [ -z "$ORIGINAL_USER" ]; then # 每次都调用，确保值正确
 _get_original_user_and_home # 此函数内部会 export ORIGINAL_USER 和 ORIGINAL_HOME
 log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
@@ -156,9 +163,15 @@ log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
 
 # --- 7. 调用 initialize_logging_system 初始化日志系统 ---
 # initialize_logging_system 内部会定义并 export CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE。
-log_debug "Initializing logging system fully..."
-if ! initialize_logging_system "$_caller_script_path"; then 
-    handle_error "Fatal: Failed to initialize logging system. Script cannot proceed."
+# log_debug "Initializing logging system fully..."
+echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【7/7】 初始化日志系统--文件记录..." >&2
+if ! initialize_logging_system "$_caller_script_path"; then
+    echo -e "\033[0;31m=====================================================================\033[0m" >&2
+    echo -e "\033[0;31mFatal Error:\033[0m Failed to initialize logging system. Script cannot proceed." >&2
+    echo -e "\033[0;31mPlease ensure the project structure is correct and file permissions allow reading.\033[0m" >&2
+    read -rp "Press any key to exit..." -n 1
+    echo "" 
+    exit 1
 fi
 log_info "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'."
 
