@@ -63,8 +63,14 @@ export readonly COLOR_RED="\033[0;31m"    # 红色
 export readonly COLOR_YELLOW="\033[0;33m" # 黄色
 export readonly COLOR_PURPLE="\033[0;35m" # 紫色 (用于 SUMMARY 级别默认颜色)
 export readonly COLOR_CYAN="\033[0;36m"   # 青色 (备用或用于特殊提示，如边框)
+export readonly COLOR_DARK_GRAY='\033[1;30m' # 暗灰色
 export readonly COLOR_BOLD="\033[1m"      # 粗体 (Bold) 属性
 export readonly COLOR_RESET="\033[0m"     # 重置所有属性到默认值
+export readonly COLOR_LIGHT_GREEN='\033[1;32m' # 备用
+export readonly COLOR_LIGHT_GRAY='\033[0;37m'
+export readonly COLOR_LIGHT_BLUE='\033[1;34m'
+export readonly COLOR_LIGHT_PURPLE='\033[1;35m'
+export readonly COLOR_LIGHT_CYAN='\033[1;36m'
 
 # ==============================================================================
 # 内部辅助函数 (以 "_" 开头命名，不对外暴露，主要供其他 utils.sh 函数调用)
@@ -451,7 +457,7 @@ _log_message_core() {
         "INFO")    terminal_color_code="${COLOR_GREEN}" ;;
         "WARN")    terminal_color_code="${COLOR_YELLOW}" ;;
         "ERROR")   terminal_color_code="${COLOR_RED}" ;;
-        "DEBUG")   terminal_color_code="${COLOR_BLUE}" ;;
+        "DEBUG")   terminal_color_code="${COLOR_DARK_GRAY}" ;;
         "SUMMARY") 
             # 如果提供了可选颜色，则使用它，否则使用 SUMMARY 的默认紫色
             terminal_color_code="${optional_color_code:-$COLOR_PURPLE}" 

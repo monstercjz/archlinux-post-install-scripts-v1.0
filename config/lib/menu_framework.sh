@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/menu_framework.sh
-# 版本: 1.0.11 (终极优化：确认提示函数化)
+# 版本: 1.0.12 (增强：菜单行交错颜色显示)
 # 日期: 2025-06-08
 # 描述: 通用菜单框架脚本。
 #       提供一个可重用的函数，用于显示和处理 Bash 脚本中的多级菜单。
@@ -18,7 +18,7 @@
 # 依赖:
 #   - environment_setup.sh (间接依赖，用于确保 BASE_DIR, MODULES_DIR,
 #     ANOTHER_MODULES_DIR, BASE_PATH_MAP 等已导出/填充)
-#   - utils.sh (直接依赖，提供日志、颜色、头部显示等基础函数，**包括 _confirm_action** )
+#   - utils.sh (直接依赖，提供日志、颜色、头部显示等基础函数，包括 _confirm_action )
 # ------------------------------------------------------------------------------
 # 使用方法: (此文件不应被直接执行，而是由其他菜单脚本 source)
 #   source "${LIB_DIR}/menu_framework.sh"
@@ -34,32 +34,35 @@
 #   相对路径: 相对于选定基础路径的脚本路径
 # ------------------------------------------------------------------------------
 # 变更记录:
-# v1.0.0 - 2025-06-08 - 初始版本。
-# v1.0.1 - 2025-06-08 - 适配新的多模块路径配置模式 (BASE_PATH_MAP)。
+# v1.0.0  - 2025-06-08 - 初始版本。
+# v1.0.1  - 2025-06-08 - 适配新的多模块路径配置模式 (BASE_PATH_MAP)。
 #                        更新菜单数据格式约定。增强对 BASE_PATH_MAP 及其键值的校验。
-# v1.0.2 - 2025-06-08 - 优化：移除不属于本脚本的硬编码调试输出。
+# v1.0.2  - 2025-06-08 - 优化：移除不属于本脚本的硬编码调试输出。
 #                        优化：在菜单退出选项时添加用户确认，提升用户体验。
-# v1.0.3 - 2025-06-08 - 修复：处理当用户输入无效菜单选项时，`set -u` 导致的“未绑定变量”错误。
+# v1.0.3  - 2025-06-08 - 修复：处理当用户输入无效菜单选项时，`set -u` 导致的“未绑定变量”错误。
 #                        使用 `${parameter:-word}` 扩展确保变量在被引用时不会未设置。
-# v1.0.4 - 2025-06-08 - 修复：当用户输入非数字字符时，`set -u` 导致的“未绑定变量”错误。
+# v1.0.4  - 2025-06-08 - 修复：当用户输入非数字字符时，`set -u` 导致的“未绑定变量”错误。
 #                        将退出选项的判断从数字比较 (`-eq`) 改为字符串精确比较 (`==`)。
-# v1.0.5 - 2025-06-08 - 增强：对用户输入进行全面的捕获和分析（验证），包括空、非数字和超出范围的输入，并提供清晰的提示。
+# v1.0.5  - 2025-06-08 - 增强：对用户输入进行全面的捕获和分析（验证），包括空、非数字和超出范围的输入，并提供清晰的提示。
 #                        重构：将菜单显示、输入验证、动作处理拆分为独立函数，提升代码模块化和可扩展性。
 #                        新增：支持在菜单中直接输入特殊命令（如 'q', 'h', 'debug'）以实现额外功能。
-# v1.0.6 - 2025-06-08 - 增强：当子脚本执行失败时，在终端显示醒目错误提示，并暂停等待用户确认，提升用户感知。
-# v1.0.7 - 2025-06-08 - 增强：添加 'c' 或 'clear' 作为特殊命令，用于清屏，提升用户体验。
-# v1.0.8 - 2025-06-08 - 终极优化：特殊命令集中定义和处理。
+# v1.0.6  - 2025-06-08 - 增强：当子脚本执行失败时，在终端显示醒目错误提示，并暂停等待用户确认，提升用户感知。
+# v1.0.7  - 2025-06-08 - 增强：添加 'c' 或 'clear' 作为特殊命令，用于清屏，提升用户体验。
+# v1.0.8  - 2025-06-08 - 终极优化：特殊命令集中定义和处理。
 #                        新增 _SPECIAL_COMMANDS_MAP 关联数组集中定义特殊命令及其内部标识符/确认需求。
 #                        新增 _handle_special_command 函数，统一处理特殊命令的具体逻辑。
 #                        _get_validated_menu_choice 仅识别特殊命令，并返回其标识符。
 #                        简化 _run_generic_menu 中对特殊命令的处理逻辑。
-# v1.0.9 - 2025-06-08 - 修复：统一特殊命令（如 'q'/'exit'）的确认逻辑，使其在 `_get_validated_menu_choice` 阶段完成，与数字选项的退出确认行为保持一致。
+# v1.0.9  - 2025-06-08 - 修复：统一特殊命令（如 'q'/'exit'）的确认逻辑，使其在 `_get_validated_menu_choice` 阶段完成，与数字选项的退出确认行为保持一致。
 #                        移除 `_handle_special_command` 中重复的确认提示。
 # v1.0.10 - 2025-06-08 - 修复：在 `_get_validated_menu_choice` 中，将特殊命令的“内部标识符”正确赋值给 `_VALIDATED_CHOICE_VALUE`。
 #                         在 `_run_generic_menu` 调用 `_handle_special_command` 时，将“原始用户输入”作为第二个参数传入。
 #                         这将确保 `_handle_special_command` 能够正确匹配并执行其内部逻辑。
-# v1.0.11 - 2025-06-08 - **核心优化：将所有确认提示逻辑提炼成一个通用的 `_confirm_action` 函数，提高代码复用性。**
-#                        **此函数已移至 `config/lib/utils.sh`。**
+# v1.0.11 - 2025-06-08 - 核心优化：将所有确认提示逻辑提炼成一个通用的 `_confirm_action` 函数，提高代码复用性。
+#                        此函数已移至 `config/lib/utils.sh`。
+# v1.0.12 - 2025-06-08 - **增强：在菜单显示时，使菜单项的文本颜色交错显示，提高视觉效果。**
+#                        **精简：将菜单退出选项和底部分隔线移入 `_display_menu_items` 函数，使其负责完整菜单主体的显示。**
+#                        **简化 `_run_generic_menu` 中的菜单显示部分。**
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -101,17 +104,36 @@ declare -A _SPECIAL_COMMANDS_MAP=(
 # ==============================================================================
 
 # _display_menu_items()
-# 功能: 仅负责遍历菜单数据并显示格式化的菜单项。
+# 功能: 遍历菜单数据并显示格式化的菜单项，包括退出选项和底部分隔线。
 # 参数: $1 (menu_data_array_name) - 包含菜单项的关联数组的名称。
+#       $2 (exit_option_text) - 退出/返回选项的文本。
 # 返回: 无。直接输出到终端。
 _display_menu_items() {
     local -n menu_data="$1" # 使用 nameref 引用传入的关联数组
+    local exit_option_text="$2"
+
+    local counter=0 # 用于交错颜色显示
+    local current_text_color=""
+
     for choice_num in $(echo "${!menu_data[@]}" | tr ' ' '\n' | sort -n); do
+        counter=$((counter + 1))
+
+        # 根据奇偶行切换颜色
+        if (( counter % 2 == 1 )); then # 奇数行，使用紫色
+            current_text_color="${COLOR_PURPLE}"
+        else # 偶数行，使用亮蓝
+            current_text_color="${COLOR_LIGHT_BLUE}"
+        fi
+
         local item_string="${menu_data[$choice_num]}"
         local menu_description _ # 声明局部变量，_ 用于忽略路径部分
         IFS='|' read -r menu_description _ <<< "$item_string"
-        echo -e "  ${COLOR_GREEN}${choice_num}.${COLOR_RESET} ${menu_description}"
+        # 数字部分仍为绿色，文本部分使用交错颜色
+        echo -e "  ${COLOR_GREEN}${choice_num}.${COLOR_RESET} ${current_text_color}${menu_description}${COLOR_RESET}"
     done
+    
+    echo -e "  ${COLOR_RED}0.${COLOR_RESET} ${exit_option_text}"
+    echo -e "${COLOR_CYAN}--------------------------------------------------------------------------------${COLOR_RESET}"
 }
 
 # ==============================================================================
@@ -393,11 +415,10 @@ _run_generic_menu() {
 
     local keep_running=true
     while "$keep_running"; do
-        display_header_section "$menu_title" "decorated" 80 "$border_color" "$title_color"
-        _display_menu_items "$menu_data_array_name" # 调用菜单显示函数
+        display_header_section "$menu_title" "box" 80 "$border_color" "$title_color"
+        _display_menu_items "$menu_data_array_name" "$exit_option_text" # 调用菜单显示函数，传入退出文本
         
-        echo -e "  ${COLOR_RED}0.${COLOR_RESET} ${exit_option_text}"
-        echo -e "${COLOR_CYAN}--------------------------------------------------------------------------------${COLOR_RESET}"
+        # 移除了原先的 echo "  0. ${exit_option_text}" 和 echo "---------------------" 
 
         # 捕获并验证用户输入
         # _get_validated_menu_choice 会设置全局变量 _VALIDATED_CHOICE_TYPE 和 _VALIDATED_CHOICE_VALUE, _ORIGINAL_COMMAND_INPUT
