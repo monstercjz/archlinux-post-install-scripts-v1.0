@@ -120,9 +120,9 @@ _display_menu_items() {
 
         # 根据奇偶行切换颜色
         if (( counter % 2 == 1 )); then # 奇数行，使用紫色
-            current_text_color="${COLOR_PURPLE}"
+            current_text_color="${COLOR_WHITE}"
         else # 偶数行，使用亮蓝
-            current_text_color="${COLOR_LIGHT_BLUE}"
+            current_text_color="${COLOR_WHITE}"
         fi
 
         local item_string="${menu_data[$choice_num]}"
@@ -130,10 +130,11 @@ _display_menu_items() {
         IFS='|' read -r menu_description _ <<< "$item_string"
         # 数字部分仍为绿色，文本部分使用交错颜色
         echo -e "  ${COLOR_GREEN}${choice_num}.${COLOR_RESET} ${current_text_color}${menu_description}${COLOR_RESET}"
+        echo "" # 在每个菜单项后添加一个空白行
     done
     
     echo -e "  ${COLOR_RED}0.${COLOR_RESET} ${exit_option_text}"
-    echo -e "${COLOR_CYAN}--------------------------------------------------------------------------------${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}--------------------------------------------------------------${COLOR_RESET}"
 }
 
 # ==============================================================================
@@ -380,8 +381,8 @@ _run_generic_menu() {
     local menu_data_array_name="$1"
     local menu_title="$2"
     local exit_option_text="${3:-Exit}" 
-    local border_color="${4:-${COLOR_CYAN}}"
-    local title_color="${5:-${COLOR_BOLD}${COLOR_YELLOW}}"
+    local border_color="${4:-${COLOR_PURPLE}}"
+    local title_color="${5:-${COLOR_BOLD}${COLOR_WHITE}}"
 
     # ========================== 依赖验证 START ==========================
     # 验证必要的 utils.sh 函数是否已加载
@@ -415,7 +416,7 @@ _run_generic_menu() {
 
     local keep_running=true
     while "$keep_running"; do
-        display_header_section "$menu_title" "box" 80 "$border_color" "$title_color"
+        display_header_section "$menu_title" "box" 60 "$border_color" "$title_color"
         _display_menu_items "$menu_data_array_name" "$exit_option_text" # 调用菜单显示函数，传入退出文本
         
         # 移除了原先的 echo "  0. ${exit_option_text}" 和 echo "---------------------" 

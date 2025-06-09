@@ -57,20 +57,40 @@ export CURRENT_DAY_LOG_DIR
 # --- 颜色常量 (用于终端输出) ---
 # 这些变量在 utils.sh 首次被 source 时初始化，并被 export readonly 到环境中。
 # 确保所有子进程都能继承并使用这些颜色代码。
-export readonly COLOR_BLUE="\033[0;34m"   # 蓝色 (Debug)
+
 export readonly COLOR_DARK_GRAY='\033[1;30m' # 暗灰色 (info)
 export readonly COLOR_GREEN="\033[0;32m"  # 绿色 (notice)
 export readonly COLOR_RED="\033[0;31m"    # 红色 (Error)
 export readonly COLOR_YELLOW="\033[0;33m" # 黄色 (Warn)
+export readonly COLOR_BLUE="\033[0;34m"   # 蓝色 (Debug)
 export readonly COLOR_PURPLE="\033[0;35m" # 紫色 (Summary 默认) - 注意：与 MAGENTA 默认值相同，可根据终端表现选择
 export readonly COLOR_CYAN="\033[0;36m"   # 青色 (交错行/边框)
+export readonly COLOR_WHITE="\033[0;37m"  # 白色 (新增，用于 Box Header Style 标题)
 export readonly COLOR_BOLD="\033[1m"      # 粗体 (Bold) 属性
 export readonly COLOR_RESET="\033[0m"     # 重置所有属性到默认值
-export readonly COLOR_LIGHT_GREEN='\033[1;32m' # 备用
-export readonly COLOR_LIGHT_GRAY='\033[0;37m'
-export readonly COLOR_LIGHT_BLUE='\033[1;34m'
-export readonly COLOR_LIGHT_PURPLE='\033[1;35m'
-export readonly COLOR_LIGHT_CYAN='\033[1;36m'
+
+
+
+
+# --- 背景色常量 (用于终端输出) ---
+export readonly BG_BLACK="\033[40m"
+export readonly BG_RED="\033[41m"
+export readonly BG_GREEN="\033[42m"
+export readonly BG_YELLOW="\033[43m"
+export readonly BG_BLUE="\033[44m"
+export readonly BG_MAGENTA="\033[45m"
+export readonly BG_CYAN="\033[46m"
+export readonly BG_WHITE="\033[47m" # 标准白色背景，在深色终端下可能显示为亮灰
+
+# 亮色背景（更常用，效果通常更明显）
+export readonly BG_LIGHT_BLACK="\033[100m" # 通常显示为深灰背景
+export readonly BG_LIGHT_RED="\033[101m"
+export readonly BG_LIGHT_GREEN="\033[102m"
+export readonly BG_LIGHT_YELLOW="\033[103m"
+export readonly BG_LIGHT_BLUE="\033[104m"
+export readonly BG_LIGHT_MAGENTA="\033[105m"
+export readonly BG_LIGHT_CYAN="\033[106m"
+export readonly BG_LIGHT_WHITE="\033[107m" # 通常显示为亮白背景
 
 # ==============================================================================
 # 内部辅助函数 (以 "_" 开头命名，不对外暴露，主要供其他 utils.sh 函数调用)
