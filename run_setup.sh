@@ -25,6 +25,11 @@
 # 严格模式：
 set -euo pipefail
 
+# === 核心优化：确保每次顶层启动都提示环境确认 ===
+# 在脚本执行的最开始，清除 _SETUP_INITIAL_CONFIRMED 变量。
+# 这可以确保当用户从终端手动运行此脚本时，环境确认提示会重新出现。
+unset _SETUP_INITIAL_CONFIRMED
+
 # 获取当前正在执行（或被 source）的脚本的绝对路径。
 # BASH_SOURCE[0] 指向当前文件自身。如果此文件被 source，则 BASH_SOURCE[1] 指向调用者。
 # 我们需要的是原始调用脚本的路径来确定项目根目录。
