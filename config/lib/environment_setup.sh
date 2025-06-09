@@ -77,7 +77,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mError: This script must be run with root privileges (using 'sudo').\033[0m" >&2
     echo -e "\033[0;31mPlease run: sudo $(basename "$_caller_script_path")\033[0m" >&2
-    echo -e "\033[0;31m=====================================================================${COLOR_RESET}\033[0m" >&2
+    echo -e "\033[0;31m=====================================================================\033[0m" >&2
     read -rp "Press any key to exit..." -n 1
     echo "" # 打印一个换行符，使提示符在新行显示
     exit 1
@@ -157,7 +157,7 @@ source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
 # 此时 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
-log_info "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
+log_notice "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
 log_info "utils.sh sourced. Core utilities and logging functions are now available."
 log_debug "Root privileges confirmed." 
 log_info "BASE_DIR confirmed: '$BASE_DIR'."
