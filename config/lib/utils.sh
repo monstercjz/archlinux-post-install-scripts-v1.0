@@ -25,6 +25,7 @@
 #                      的声明保留在 utils.sh，因为它们是日志模块的动态输出。
 # v2.0.3 - 2025-06-08 - **进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。**
 #                      **其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。**
+# v2.0.4 - 2025-06-08 - **新增通用确认提示函数 `_confirm_action`，提高代码复用性。**
 # ==============================================================================
 
 # 严格模式：
@@ -707,4 +708,25 @@ handle_error() {
     log_error "$message"
     log_error "Script execution terminated due to previous error."
     exit "$exit_code"
+}
+# _confirm_action()
+# 功能: 显示一个带颜色的确认提示，并等待用户输入 (y/N)。
+# 参数: $1 (prompt_text) - 提示用户的文本。
+#       $2 (default_yn) - 默认响应 ('y' 或 'n'，不区分大小写)。
+#       $3 (color_code) - 提示文本的颜色代码 (例如 ${COLOR_YELLOW}, ${COLOR_RED})。
+# 返回: 0 (用户输入 Y/y), 1 (用户输入 N/n 或直接回车)。
+_confirm_action() {
+    local prompt_text="$1"
+    local default_yn="${2:-n}" # Default to 'n' for safety if not provided
+    local color_code="${3:-${COLOR_YELLOW}}" # Default to yellow if not provided
+
+    local response
+    read -rp "$(echo -e "${color_code}${prompt_text} (y/N): ${COLOR_RESET}")" response
+    response="${response:-$default_yn}" # If empty, use default
+
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        return 0
+    else
+        return 1
+    fi
 }

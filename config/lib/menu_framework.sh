@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/menu_framework.sh
-# 版本: 1.0.10 (修复：特殊命令ID传递错误)
+# 版本: 1.0.11 (终极优化：确认提示函数化)
 # 日期: 2025-06-08
 # 描述: 通用菜单框架脚本。
 #       提供一个可重用的函数，用于显示和处理 Bash 脚本中的多级菜单。
@@ -18,7 +18,7 @@
 # 依赖:
 #   - environment_setup.sh (间接依赖，用于确保 BASE_DIR, MODULES_DIR,
 #     ANOTHER_MODULES_DIR, BASE_PATH_MAP 等已导出/填充)
-#   - utils.sh (直接依赖，提供日志、颜色、头部显示等基础函数)
+#   - utils.sh (直接依赖，提供日志、颜色、头部显示等基础函数，**包括 _confirm_action** )
 # ------------------------------------------------------------------------------
 # 使用方法: (此文件不应被直接执行，而是由其他菜单脚本 source)
 #   source "${LIB_DIR}/menu_framework.sh"
@@ -55,9 +55,11 @@
 #                        简化 _run_generic_menu 中对特殊命令的处理逻辑。
 # v1.0.9 - 2025-06-08 - 修复：统一特殊命令（如 'q'/'exit'）的确认逻辑，使其在 `_get_validated_menu_choice` 阶段完成，与数字选项的退出确认行为保持一致。
 #                        移除 `_handle_special_command` 中重复的确认提示。
-# v1.0.10 - 2025-06-08 - **修复：在 `_get_validated_menu_choice` 中，将特殊命令的“内部标识符”正确赋值给 `_VALIDATED_CHOICE_VALUE`。**
-#                         **在 `_run_generic_menu` 调用 `_handle_special_command` 时，将“原始用户输入”作为第二个参数传入。**
-#                         **这将确保 `_handle_special_command` 能够正确匹配并执行其内部逻辑。**
+# v1.0.10 - 2025-06-08 - 修复：在 `_get_validated_menu_choice` 中，将特殊命令的“内部标识符”正确赋值给 `_VALIDATED_CHOICE_VALUE`。
+#                         在 `_run_generic_menu` 调用 `_handle_special_command` 时，将“原始用户输入”作为第二个参数传入。
+#                         这将确保 `_handle_special_command` 能够正确匹配并执行其内部逻辑。
+# v1.0.11 - 2025-06-08 - **核心优化：将所有确认提示逻辑提炼成一个通用的 `_confirm_action` 函数，提高代码复用性。**
+#                        **此函数已移至 `config/lib/utils.sh`。**
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -77,7 +79,7 @@ _VALIDATED_CHOICE_TYPE=""
 # _VALIDATED_CHOICE_VALUE: 验证后的具体输入值 (内部标识符字符串，如 "quit_program")
 _VALIDATED_CHOICE_VALUE=""
 # _ORIGINAL_COMMAND_INPUT: 原始用户输入字符串 (例如 "debug on"，用于 _handle_special_command 解析参数)
-_ORIGINAL_COMMAND_INPUT="" # 新增一个全局变量来存储原始输入
+_ORIGINAL_COMMAND_INPUT="" 
 
 # ==============================================================================
 # 特殊命令定义 (集中化管理)
@@ -124,7 +126,7 @@ _display_menu_items() {
 # 返回: 0 (成功处理), 1 (处理失败或取消)
 _handle_special_command() {
     local command_id="$1"
-    local original_user_input="$2" # 现在这个变量名更通用
+    local original_user_input="$2" 
     local exit_option_text="$3" # 用于帮助信息
 
     # 在这里，我们假定所有确认已经在 _get_validated_menu_choice 中完成，
@@ -204,8 +206,8 @@ _get_validated_menu_choice() {
 
     # 2. 检查退出/返回选项 (字符串精确比较)
     if [[ "$choice" == "0" ]]; then
-        read -rp "$(echo -e "${COLOR_YELLOW}Are you sure you want to ${exit_option_text}? (y/N): ${COLOR_RESET}")" confirm_exit
-        if [[ "$confirm_exit" =~ ^[Yy]$ ]]; then
+        # 使用 _confirm_action 函数进行确认 (已移至 utils.sh)
+        if _confirm_action "Are you sure you want to ${exit_option_text}?" "n" "${COLOR_YELLOW}"; then
             _VALIDATED_CHOICE_TYPE="exit"
             log_info "User chose to '$exit_option_text'."
             return 0 # 合法退出操作
@@ -221,8 +223,7 @@ _get_validated_menu_choice() {
 
     # 遍历 _SPECIAL_COMMANDS_MAP 的键，进行精确或前缀匹配
     for special_cmd_key in "${!_SPECIAL_COMMANDS_MAP[@]}"; do
-        # 针对 "debug on/off" 这样的带参数命令，使用前缀匹配
-        # 这里需要精确匹配用户输入的完整字符串，因为 "debug" 后面可以跟 "on" 或 "off"
+        # 针对 "debug on/off" 这样的带参数命令，需要精确匹配用户输入的完整字符串
         if [[ "$special_cmd_key" == "debug "* ]]; then
             # 确保用户输入以 "debug " 开头，且匹配 "debug on" 或 "debug off"
             if [[ "$choice" == "debug on" || "$choice" == "debug off" ]]; then
@@ -240,8 +241,8 @@ _get_validated_menu_choice() {
     if [[ -n "$special_cmd_id" ]]; then
         if [[ "$confirm_needed" == "true" ]]; then
             # 针对需要确认的特殊命令（如 'q'/'exit'），在此处进行确认
-            read -rp "$(echo -e "${COLOR_RED}WARNING: Are you sure you want to execute '$choice'? (y/N): ${COLOR_RESET}")" confirm_action
-            if ! [[ "$confirm_action" =~ ^[Yy]$ ]]; then
+            # 使用 _confirm_action 函数进行确认，提示颜色为红色
+            if ! _confirm_action "WARNING: Are you sure you want to execute '$choice'?" "n" "${COLOR_RED}"; then
                 log_info "Special command '$choice' cancelled."
                 return 1 # 取消操作，需要重新提示
             fi
@@ -376,6 +377,11 @@ _run_generic_menu() {
         log_error "Fatal Error: [menu_framework] BASE_DIR environment variable is not set. Cannot resolve module paths. Ensure it's exported by the calling script's initialization block."
         return 1
     fi
+    # 验证 _confirm_action 是否已加载 (现在来自 utils.sh)
+    if ! type -t _confirm_action &>/dev/null; then
+        log_error "Fatal Error: [menu_framework] _confirm_action function not found. Ensure utils.sh (v2.0.4+) is sourced."
+        return 1
+    fi
     # ========================== 依赖验证 END ==========================
 
     # 引用传入的关联数组（Bash 4.3+ nameref）
@@ -419,7 +425,8 @@ _run_generic_menu() {
                     echo -e "${COLOR_RED}   --> ${CURRENT_SCRIPT_LOG_FILE}                                      ${COLOR_RESET}"
                     echo -e "${COLOR_RED} You can press Ctrl+C to abort the entire script.                      ${COLOR_RESET}"
                     echo -e "${COLOR_RED}======================================================================${COLOR_RESET}"
-                    read -rp "$(echo -e "${COLOR_YELLOW}Press Enter to return to the menu and choose another option...${COLOR_RESET}")"
+                    # 使用 _confirm_action 进行暂停，不需要确认用户是否继续，只是等待回车
+                    _confirm_action "Press Enter to return to the menu and choose another option..." "" "${COLOR_YELLOW}"
                 fi
                 ;;
             "special_command")
