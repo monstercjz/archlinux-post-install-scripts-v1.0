@@ -211,7 +211,7 @@ if [ -z "${_SETUP_INITIAL_CONFIRMED+set}" ]; then
     log_summary "--------------------------------------------------"
     log_summary "Running as: root (Original User: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
     log_summary "Project Root: ${BASE_DIR}"
-log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
+    log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
     log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
     log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
     log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"

@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/menu_framework.sh
-# 版本: 1.0.1 (适配多模块路径和新的配置模式)
+# 版本: 1.0.2 (优化：移除不必要的调试输出，添加退出确认)
 # 日期: 2025-06-08
 # 描述: 通用菜单框架脚本。
 #       提供一个可重用的函数，用于显示和处理 Bash 脚本中的多级菜单。
@@ -35,9 +35,10 @@
 # ------------------------------------------------------------------------------
 # 变更记录:
 # v1.0.0 - 2025-06-08 - 初始版本，实现通用菜单框架的核心功能。
-# v1.0.1 - 2025-06-08 - **适配新的多模块路径配置模式 (BASE_PATH_MAP)。**
-#                        更新菜单数据格式约定。
-#                        增强对 BASE_PATH_MAP 及其键值的校验。
+# v1.0.1 - 2025-06-08 - 适配新的多模块路径配置模式 (BASE_PATH_MAP)。
+#                        更新菜单数据格式约定。增强对 BASE_PATH_MAP 及其键值的校验。
+# v1.0.2 - 2025-06-08 - **优化：移除不属于本脚本的硬编码调试输出。**
+#                        **优化：在菜单退出选项时添加用户确认，提升用户体验。**
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -71,6 +72,7 @@ _run_generic_menu() {
 
     # 验证必要的依赖是否已加载：BASE_DIR 已由调用脚本顶部引导块导出
     if ! type -t log_info &>/dev/null || ! type -t display_header_section &>/dev/null; then
+        # 此时 log_info 不可用，直接使用 echo
         echo -e "${COLOR_RED}Fatal Error:${COLOR_RESET} [menu_framework] utils.sh functions (log_info, display_header_section) not found. Ensure utils.sh is sourced." >&2
         return 1
     fi
@@ -107,9 +109,16 @@ _run_generic_menu() {
 
         # 检查退出选项
         if [[ "$choice" -eq 0 ]]; then
-            log_info "User chose to '$exit_option_text'."
-            keep_running=false # 退出当前菜单循环
-            return 0 
+            # 添加退出确认提示
+            read -rp "$(echo -e "${COLOR_YELLOW}Are you sure you want to ${exit_option_text}? (y/N): ${COLOR_RESET}")" confirm_exit
+            if [[ "$confirm_exit" =~ ^[Yy]$ ]]; then
+                log_info "User chose to '$exit_option_text'."
+                keep_running=false # 退出当前菜单循环
+                return 0 
+            else
+                log_info "'${exit_option_text}' cancelled. Returning to menu."
+                continue # 继续菜单循环
+            fi
         fi
 
         local full_entry_string="${menu_data[$choice]}"
@@ -118,9 +127,6 @@ _run_generic_menu() {
             IFS='|' read -r menu_description type_and_path <<< "$full_entry_string" # 分割描述和类型+路径部分
 
             local menu_type base_key relative_path # 声明局部变量
-            # 然后分割 ':' 获取类型、基础路径键和相对路径
-            # 注意：`read -r var1 var2 var3 <<< "$string"` 如果 $string 不包含所有字段，后面的变量会为空。
-            # 这是 Bash 的预期行为。
             IFS=':' read -r menu_type base_key relative_path <<< "$type_and_path"
 
             local base_dir="${BASE_PATH_MAP[$base_key]}"
