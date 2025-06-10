@@ -68,6 +68,7 @@ declare -A BASE_PATH_MAP # 声明为关联数组，供后续在 environment_setu
 # --- 日志和调试设置 (可配置的默认值) ---
 export ENABLE_COLORS="true"  # 控制终端输出是否带颜色 (true/false)
 export DEBUG_MODE="true"     # 控制是否开启调试日志 (true/false)
+export LOG_COLOR_MODE="level_only"
 
 # --- 用户环境相关默认设置 (可配置的默认值) ---
 export DEFAULT_EDITOR="nano" # 默认文本编辑器 (例如: nano, vim, micro)

@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/utils.sh
-# 版本: 2.0.3 (优化变量声明：仅保留 utils.sh 内部管理和日志系统状态变量)
+# 版本: 2.0.6 (重构日志核心函数：拆分格式化与写入逻辑)
 # 日期: 2025-06-08
 # 描述: 核心通用函数库。
 #       提供项目运行所需的基础功能，包括日志记录、用户上下文识别、权限检查辅助、
@@ -10,10 +10,11 @@
 #       'environment_setup.sh' 调用以完成环境引导。
 # ------------------------------------------------------------------------------
 # 核心功能：
-# - 统一的日志系统：支持INFO/WARN/ERROR/DEBUG/SUMMARY级别，终端彩色输出(可控)，
-#   每脚本独立纯文本日志文件，并由原始用户拥有。
+# - 统一的日志系统：支持INFO/WARN/ERROR/DEBUG/SUMMARY/NOTICE级别，
+#   终端彩色输出(可控，支持两种颜色模式)，每脚本独立纯文本日志文件，
+#   并由原始用户拥有。
 # - 日志系统初始化 (initialize_logging_system) - 职责更单一。
-# - 用户上下文：识别调用 sudo 的原始用户 (ORIGINAL_USER) 及其家目录 (ORIGINAL_HOME)。
+# - 用户上下文：识别调用 sudo 的原始用户 (ORIGINAL_USER) 及家庭目录 (ORIGINAL_HOME)。
 # - 统一的错误处理函数 (handle_error)。
 # - 文件与目录权限管理辅助 - 职责更单一。
 # - 增强的头部显示函数 (display_header_section) 支持多种样式。
@@ -23,9 +24,15 @@
 # v2.0.1 - 2025-06-08 - 优化变量声明：移除 utils.sh 顶部不必要的全局 export 变量声明。
 # v2.0.2 - 2025-06-08 - 优化变量声明：将 CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE
 #                      的声明保留在 utils.sh，因为它们是日志模块的动态输出。
-# v2.0.3 - 2025-06-08 - **进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。**
-#                      **其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。**
-# v2.0.4 - 2025-06-08 - **新增通用确认提示函数 `_confirm_action`，提高代码复用性。**
+# v2.0.3 - 2025-06-08 - 进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。
+#                      其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。
+# v2.0.4 - 2025-06-08 - 新增通用确认提示函数 `_confirm_action`，提高代码复用性。
+# v2.0.5 - 2025-06-08 - 新增日志颜色显示模式控制 (LOG_COLOR_MODE)。
+#                      默认为 'full_line' (整行着色)，可设为 'level_only' (仅日志级别着色)。
+#                      新增 'NOTICE' 日志级别及其对应的绿色。
+# v2.0.6 - 2025-06-08 - **重构日志核心函数 `_log_message_core`，将其拆分为：**
+#                      **`_format_log_strings` (负责日志字符串格式化和拼接)**
+#                      **`_write_log_output` (负责将格式化后的日志写入终端和文件)。**
 # ==============================================================================
 
 # 严格模式：
@@ -54,6 +61,13 @@ export CURRENT_DAY_LOG_DIR
 # 再由 environment_setup.sh 传递给需要它的函数（如 _get_log_caller_info）。
 # (此变量不会被导出，但其值在当前 shell 进程中可用，通过函数参数传递)
 
+# LOG_COLOR_MODE: 控制日志在终端的颜色显示模式。
+# "full_line": 整行日志（包括时间戳、调用者、消息）都显示颜色 (现有行为)。
+# "level_only": 仅日志级别标签（如 [INFO], [WARN]）显示颜色，其余内容保持默认终端颜色。
+# 默认值应在 environment_setup.sh (通过 main_config.sh) 中设置。
+# 如果未设置，此文件内部默认使用 "full_line" 以保持向后兼容。
+export LOG_COLOR_MODE="${LOG_COLOR_MODE:-full_line}" 
+
 # --- 颜色常量 (用于终端输出) ---
 # 这些变量在 utils.sh 首次被 source 时初始化，并被 export readonly 到环境中。
 # 确保所有子进程都能继承并使用这些颜色代码。
@@ -68,9 +82,6 @@ export readonly COLOR_CYAN="\033[0;36m"   # 青色 (交错行/边框)
 export readonly COLOR_WHITE="\033[0;37m"  # 白色 (新增，用于 Box Header Style 标题)
 export readonly COLOR_BOLD="\033[1m"      # 粗体 (Bold) 属性
 export readonly COLOR_RESET="\033[0m"     # 重置所有属性到默认值
-
-
-
 
 # --- 背景色常量 (用于终端输出) ---
 export readonly BG_BLACK="\033[40m"
@@ -367,7 +378,10 @@ _get_log_caller_info() {
     # 此外，像菜单显示函数（如 show_main_menu）等，如果希望其日志源显示脚本名而非函数名，则在此处添加。
     local -a internal_utility_functions=(
         "_log_message_core"           # 核心日志处理函数自身
+        "_format_log_strings"         # 新增：日志字符串格式化辅助函数
+        "_write_log_output"           # 新增：日志输出辅助函数
         "log_info"                    # 日志级别封装函数
+        "log_notice"
         "log_warn"
         "log_error"
         "log_debug"
@@ -388,6 +402,7 @@ _get_log_caller_info() {
         "_get_log_caller_info"        # 自身也需要加入，否则日志源会显示为 _get_log_caller_info
         "_validate_logging_prerequisites" # 日志初始化辅助
         "_get_current_day_log_dir"        # 日志初始化辅助
+        "_confirm_action"             # 通用确认函数
         # 通用权限检查辅助函数
         "check_root_privileges"       
         # 菜单显示函数 (如果希望其日志源显示脚本名而非函数名，则在此处添加)
@@ -454,61 +469,126 @@ _get_log_caller_info() {
 # 日志记录模块 (包含核心日志逻辑、初始化函数和对外暴露的封装函数)
 # ------------------------------------------------------------------------------
 
-# _log_message_core()
-# 功能: 核心日志记录逻辑，负责格式化日志信息并输出到终端和文件。
-# 依赖: _get_log_caller_info(), _strip_ansi_colors() (内部辅助函数)。
-#       全局变量：COLOR_X (颜色常量), ENABLE_COLORS, DEBUG_MODE, CURRENT_SCRIPT_LOG_FILE。
+# _format_log_strings()
+# 功能: 内部辅助函数，负责根据日志级别和模式格式化日志消息，生成终端和文件输出字符串。
+# 依赖: _get_log_caller_info(), _strip_ansi_colors()。
+#       全局变量：LOG_COLOR_MODE, COLOR_X 等。
 # 参数: $1 (level) - 日志级别 (例如 "INFO", "ERROR", "SUMMARY")。
-#       $2 (message) - 要记录的日志消息。
+#       $2 (message) - 原始日志消息。
 #       $3 (optional_color_code) - 可选，用于 SUMMARY 级别的特定颜色代码。
-# 返回: 无。直接将日志信息输出到终端和文件。
-_log_message_core() {
+# 返回: 将格式化后的终端字符串和文件字符串分别通过 echo 输出，由调用者捕获。
+_format_log_strings() {
     local level="$1"
     local message="$2"
-    local optional_color_code="${3:-}" # 新增可选颜色参数
+    local optional_color_code="$3" # Passed directly from log_summary
+
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local calling_source_name="$(_get_log_caller_info "$level")"
 
-    # 调用 _get_log_caller_info 来获取日志调用者信息
-    local calling_source_name="$(_get_log_caller_info "$level")" # 传递级别给辅助函数
-
-    # 根据日志级别设置终端颜色。
-    local terminal_color_code="${COLOR_RESET}"
+    local level_color="${COLOR_RESET}" # 默认颜色
     case "$level" in
-        "INFO")    terminal_color_code="${COLOR_DARK_GRAY}" ;;
-        "NOTICE")  terminal_color_code="${COLOR_GREEN}" ;; # 新增 NOTICE 级别颜色
-        "WARN")    terminal_color_code="${COLOR_YELLOW}" ;;
-        "ERROR")   terminal_color_code="${COLOR_RED}" ;;
-        "DEBUG")   terminal_color_code="${COLOR_BLUE}" ;;
-        "SUMMARY") 
-            # 如果提供了可选颜色，则使用它，否则使用 SUMMARY 的默认紫色
-            terminal_color_code="${optional_color_code:-$COLOR_PURPLE}" 
-            ;;
-        *)         terminal_color_code="${COLOR_RESET}" ;;
+        "INFO")    level_color="${COLOR_DARK_GRAY}" ;;
+        "NOTICE")  level_color="${COLOR_GREEN}" ;; 
+        "WARN")    level_color="${COLOR_YELLOW}" ;;
+        "ERROR")   level_color="${COLOR_RED}" ;;
+        "DEBUG")   level_color="${COLOR_BLUE}" ;;
+        "SUMMARY") level_color="${optional_color_code:-$COLOR_PURPLE}" ;; # SUMMARY 可自定义颜色，否则默认紫色
+        *)         level_color="${COLOR_RESET}" ;; # 未知级别，不着色
     esac
 
-    # 构建日志前缀（只有非 SUMMARY 级别在终端有，文件日志始终完整）
-    local terminal_prefix=""
-    if [[ "$level" != "SUMMARY" ]]; then
-        terminal_prefix="[$timestamp] [$level] [$calling_source_name] "
+    local formatted_terminal_string=""
+    local plain_log_prefix="[$timestamp] [$level] [$calling_source_name] "
+    local formatted_file_string="$plain_log_prefix$(_strip_ansi_colors "$message")" # 文件日志总是纯文本且带完整前缀
+
+    # 根据 LOG_COLOR_MODE 构建终端输出字符串
+    if [[ "${LOG_COLOR_MODE:-full_line}" == "level_only" ]]; then
+        # level_only 模式: 仅日志级别标签着色
+        if [[ "$level" == "SUMMARY" ]]; then
+            # SUMMARY 级别在终端没有标准前缀，整行着色（与 full_line 模式相同，因为它本身是特殊样式）
+            formatted_terminal_string="${level_color}${message}${COLOR_RESET}"
+        else
+            # 其他级别：仅对 [LEVEL] 部分着色，其他部分保持默认终端颜色
+            formatted_terminal_string="[$timestamp] [${level_color}${level}${COLOR_RESET}] [$calling_source_name] ${message}"
+        fi
+    else # full_line 模式 (默认) 或未设置
+        # full_line 模式: 整行日志都显示颜色
+        if [[ "$level" == "SUMMARY" ]]; then
+            # SUMMARY 级别在终端没有标准前缀，整行着色
+            formatted_terminal_string="${level_color}${message}${COLOR_RESET}"
+        else
+            # 其他级别：整行日志都使用 level_color
+            formatted_terminal_string="${level_color}${plain_log_prefix}${message}${COLOR_RESET}"
+        fi
     fi
 
-    # 1. 终端输出：带颜色的日志信息。
+    # Echo the two formatted strings, each on a new line.
+    # The caller will capture them using `read -r -d '' -a`.
+    echo "$formatted_terminal_string"
+    echo "$formatted_file_string"
+}
+
+# _write_log_output()
+# 功能: 内部辅助函数，负责将格式化后的日志字符串输出到终端和文件。
+# 依赖: CURRENT_SCRIPT_LOG_FILE, ENABLE_COLORS, COLOR_YELLOW, COLOR_RESET。
+# 参数: $1 (level) - 日志级别 (用于判断是否输出到 stderr)。
+#       $2 (terminal_string) - 已格式化并带有颜色的终端输出字符串。
+#       $3 (file_string) - 已格式化且纯文本的文件输出字符串。
+# 返回: 无。直接将日志信息输出到终端和文件。
+_write_log_output() {
+    local level="$1"
+    local terminal_string="$2"
+    local file_string="$3"
+
+    # 1. 终端输出
     # ENABLE_COLORS 变量在 main_config.sh 中定义，并由 environment_setup.sh 加载。
-    if [[ "${ENABLE_COLORS:-true}" == "true" ]]; then
-        echo -e "${terminal_color_code}${terminal_prefix}${message}${COLOR_RESET}"
+    local output_target
+    if [[ "$level" == "WARN" || "$level" == "ERROR" ]]; then
+        output_target=">&2" # 警告和错误信息输出到标准错误
     else
-        echo "${terminal_prefix}${message}"
+        output_target="" # 其他信息输出到标准输出
+    fi
+
+    if [[ "${ENABLE_COLORS:-true}" == "true" ]]; then
+        # 使用 eval 确保 `>&2` 正确应用
+        eval "echo -e \"\$terminal_string\" $output_target"
+    else
+        # 如果禁用颜色，则移除所有 ANSI 颜色码再输出
+        eval "echo \"\$(_strip_ansi_colors \"\$terminal_string\")\" $output_target"
     fi
     
     # 2. 文件写入：纯文本日志信息。
-    # 文件日志始终包含完整前缀，且不带颜色码，确保可追踪性。
-    # `_strip_ansi_colors` 返回一个字符串，不需要外部 echo -e。
+    # `_strip_ansi_colors` 已在 _format_log_strings 中应用到 file_string。
     # 如果写入失败，会输出警告到标准错误。
-    # CURRENT_SCRIPT_LOG_FILE 变量由 initialize_logging_system 函数设置并导出。
     if [[ -n "${CURRENT_SCRIPT_LOG_FILE:-}" ]]; then
-        echo "[$timestamp] [$level] [$calling_source_name] $(_strip_ansi_colors "$message")" >> "${CURRENT_SCRIPT_LOG_FILE}" || \
+        echo "$file_string" >> "${CURRENT_SCRIPT_LOG_FILE}" || \
             echo "${COLOR_YELLOW}Warning:${COLOR_RESET} Failed to write log to file '${CURRENT_SCRIPT_LOG_FILE}'. Check permissions." >&2
     fi
+}
+
+
+# _log_message_core()
+# 功能: 核心日志记录逻辑的协调器。
+# 说明: 负责调用格式化函数获取日志字符串，然后调用写入函数进行输出。
+# 依赖: _format_log_strings(), _write_log_output()。
+# 参数: $1 (level) - 日志级别。
+#       $2 (message) - 要记录的日志消息。
+#       $3 (optional_color_code) - 可选，用于 SUMMARY 级别的特定颜色代码。
+# 返回: 无。
+_log_message_core() {
+    local level="$1"
+    local message="$2"
+    local optional_color_code="${3:-}"
+
+    # 调用 _format_log_strings 辅助函数来获取终端和文件日志字符串。
+    # `IFS=$'\n' read -r -d '' -a` 是一种健壮地读取多行输出到数组的方法。
+    local formatted_strings_output
+    IFS=$'\n' read -r -d '' -a formatted_strings_output < <(_format_log_strings "$level" "$message" "$optional_color_code" && printf '\0')
+
+    local terminal_output="${formatted_strings_output[0]}"
+    local file_output="${formatted_strings_output[1]}"
+
+    # 调用 _write_log_output 辅助函数来处理实际的输出。
+    _write_log_output "$level" "$terminal_output" "$file_output"
 }
 
 # initialize_logging_system()
@@ -584,7 +664,7 @@ _validate_logging_prerequisites() {
     if [ -z "${BASE_DIR+set}" ] || [ -z "${LOG_ROOT+set}" ] || \
        [ -z "${ORIGINAL_USER+set}" ] || [ -z "${ORIGINAL_HOME+set}" ]; then
         # 此时 log_error 无法完全记录到文件，直接 echo 到 stderr。
-        echo "${COLOR_RED}Fatal Error:${COLOR_RESET} [utils.initialize_logging_system] Logging environment (BASE_DIR, LOG_ROOT, ORIGINAL_USER) not fully set. Exiting." >&2
+        echo "${COLOR_RED}Fatal Error:${COLOR_RESET} [utils.initialize_logging_system] Logging environment (BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME) not fully set. Exiting." >&2
         exit 1
     fi
     return 0
@@ -609,15 +689,15 @@ _get_current_day_log_dir() {
 # 参数: $1 (message) - 要记录的日志消息。
 #       $2 (optional_color_code) - 仅 log_summary 接受，用于指定颜色。
 log_info() { _log_message_core "INFO" "$1"; }
-log_notice() { _log_message_core "NOTICE" "$1"; } # 新增 NOTICE 级别封装函数
-log_warn() { _log_message_core "WARN" "$1" >&2; }
-log_error() { _log_message_core "ERROR" "$1" >&2; }
+log_notice() { _log_message_core "NOTICE" "$1"; }
+log_warn() { _log_message_core "WARN" "$1"; } # 输出到 stderr 已经在 _write_log_output 中处理
+log_error() { _log_message_core "ERROR" "$1"; } # 输出到 stderr 已经在 _write_log_output 中处理
 log_debug() {
     if [[ "${DEBUG_MODE:-false}" == "true" ]]; then
         _log_message_core "DEBUG" "$1"
     fi
 }
-log_summary() { _log_message_core "SUMMARY" "$1" "${2:-}"; } # SUMMARY 级别封装函数，接受可选颜色参数
+log_summary() { _log_message_core "SUMMARY" "$1" "${2:-}"; }
 
 # ==============================================================================
 # 通用工具函数 (对外暴露)
