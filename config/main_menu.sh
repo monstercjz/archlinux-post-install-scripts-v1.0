@@ -35,6 +35,11 @@
 # 严格模式：
 set -euo pipefail
 
+# === 核心优化：确保每次顶层启动都提示环境确认 ===
+# 在脚本执行的最开始，清除 _SETUP_INITIAL_CONFIRMED 变量。
+# 这可以确保当用户从终端手动运行此脚本时，环境确认提示会重新出现。
+# unset _SETUP_INITIAL_CONFIRMED
+
 # 获取当前正在执行（或被 source）的脚本的绝对路径。
 # BASH_SOURCE[0] 指向当前文件自身。如果此文件被 source，则 BASH_SOURCE[1] 指向调用者。
 # 我们需要的是原始调用脚本的路径来确定项目根目录。
@@ -81,8 +86,8 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 declare -A MAIN_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="系统环境配置 (Mirrors, Network, System Time)|menu:core_modules:01_system_base/00_system_base_menu.sh"
-    [2]="基础软件安装 (AUR Helper, Pacman Hooks)|menu:core_modules:02_package_management/00_package_management_menu.sh"
-    [3]="用户环境配置 (Shell, Dotfiles, Editor)|menu:core_modules:03_user_environment/00_user_environment_menu.sh"
+    [2]="用户环境配置 (Shell, Dotfiles, Editor)|menu:core_modules:02_user_environment/00_user_environment_menu.sh"
+    [3]="基础软件安装 (AUR Helper, Pacman Hooks)|menu:core_modules:03_package_management/00_package_management_menu.sh"
     [4]="常用软件安装 (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="Perform Cleanup and Finish|action:core_modules:00_cleanup_and_finish.sh"
 
