@@ -153,7 +153,7 @@ export readonly COLOR_BRIGHT_WHITE_BG="${ESC}107m"
 
 # --- 日志级别显示宽度 (用于对齐终端输出) ---
 # 根据最长日志级别名称的长度 (e.g., "SUCCESS", "SUMMARY" 都是7个字符)
-export readonly _LOG_LEVEL_PAD_WIDTH=7 
+export readonly _LOG_LEVEL_PAD_WIDTH=8 
 
 # ==============================================================================
 # 内部辅助函数 (以 "_" 开头命名，不对外暴露，主要供其他 utils.sh 函数调用)
@@ -646,7 +646,8 @@ _log_message_core() {
 
     # 原始文本部分，不含颜色码
     local timestamp_text="[$timestamp] "
-    local level_text_raw="$(printf "%-${_LOG_LEVEL_PAD_WIDTH}s" "$level")" # 对级别名称进行填充
+    # local level_text_raw="$(printf "%-${_LOG_LEVEL_PAD_WIDTH}s" "$level")" # 对级别名称进行填充
+    local level_text_raw="$(_center_text "$level" "$_LOG_LEVEL_PAD_WIDTH" " ")" # 对级别名称进行居中填充
     local caller_text="[$calling_source_name] "
     local message_text_raw="${message}" # 原始消息内容
 
