@@ -120,9 +120,9 @@ _display_menu_items() {
 
         # 根据奇偶行切换颜色
         if (( counter % 2 == 1 )); then # 奇数行，使用紫色
-            current_text_color="${COLOR_WHITE}"
+            current_text_color="${COLOR_BRIGHT_CYAN}"
         else # 偶数行，使用亮蓝
-            current_text_color="${COLOR_WHITE}"
+            current_text_color="${COLOR_CYAN}"
         fi
 
         local item_string="${menu_data[$choice_num]}"

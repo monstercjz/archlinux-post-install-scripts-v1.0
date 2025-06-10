@@ -101,37 +101,55 @@ export CURRENT_DAY_LOG_DIR
 # 这些变量在 utils.sh 首次被 source 时初始化，并被 export readonly 到环境中。
 # 确保所有子进程都能继承并使用这些颜色代码。
 
-export readonly COLOR_DARK_GRAY='\033[1;30m' # 暗灰色 (info)
-export readonly COLOR_GREEN="\033[0;32m"  # 绿色 (notice/success)
-export readonly COLOR_RED="\033[0;31m"    # 红色 (Error/Fatal)
-export readonly COLOR_YELLOW="\033[0;33m" # 黄色 (Warn)
-export readonly COLOR_BLUE="\033[0;34m"   # 蓝色 (Debug)
-export readonly COLOR_PURPLE="\033[0;35m" # 紫色 (Summary 默认)
-export readonly COLOR_CYAN="\033[0;36m"   # 青色 (交错行/边框)
-export readonly COLOR_WHITE="\033[0;37m"  # 白色 (新增，用于 Box Header Style 标题)
-export readonly COLOR_BOLD="\033[1m"      # 粗体 (Bold) 属性
-export readonly COLOR_RESET="\033[0m"     # 重置所有属性到默认值
+ESC="\033["
+# 重置所有属性
+export readonly COLOR_RESET="${ESC}0m"
+export readonly COLOR_BLINK="${ESC}5m" # 很少使用，通常会禁用
+# 定义基本的文本样式
+export readonly COLOR_BOLD="${ESC}1m"  # 粗体 (Bold) 属性
+
+# --- 前景色定义 (30-37) ---
+export readonly COLOR_BLACK="${ESC}30m"
+export readonly COLOR_RED="${ESC}31m"
+export readonly COLOR_GREEN="${ESC}32m"
+export readonly COLOR_YELLOW="${ESC}33m"
+export readonly COLOR_BLUE="${ESC}34m"
+export readonly COLOR_PURPLE="${ESC}35m"
+export readonly COLOR_CYAN="${ESC}36m"
+export readonly COLOR_WHITE="${ESC}37m"
+
+# --- 亮前景色定义 (90-97) ---
+export readonly COLOR_BRIGHT_BLACK="${ESC}90m"
+export readonly COLOR_BRIGHT_RED="${ESC}91m"
+export readonly COLOR_BRIGHT_GREEN="${ESC}92m"
+export readonly COLOR_BRIGHT_YELLOW="${ESC}93m"
+export readonly COLOR_BRIGHT_BLUE="${ESC}94m"
+export readonly COLOR_BRIGHT_PURPLE="${ESC}95m"
+export readonly COLOR_BRIGHT_CYAN="${ESC}96m"
+export readonly COLOR_BRIGHT_WHITE="${ESC}97m"
+
+# --- 背景色定义 (40-47) ---
+export readonly COLOR_BLACK_BG="${ESC}40m"
+export readonly COLOR_RED_BG="${ESC}41m"
+export readonly COLOR_GREEN_BG="${ESC}42m"
+export readonly COLOR_YELLOW_BG="${ESC}43m"
+export readonly COLOR_BLUE_BG="${ESC}44m"
+export readonly COLOR_PURPLE_BG="${ESC}45m"
+export readonly COLOR_CYAN_BG="${ESC}46m"
+export readonly COLOR_WHITE_BG="${ESC}47m"
+
+# --- 亮背景色定义 (100-107) ---
+export readonly COLOR_BRIGHT_BLACK_BG="${ESC}100m"
+export readonly COLOR_BRIGHT_RED_BG="${ESC}101m"
+export readonly COLOR_BRIGHT_GREEN_BG="${ESC}102m"
+export readonly COLOR_BRIGHT_YELLOW_BG="${ESC}103m"
+export readonly COLOR_BRIGHT_BLUE_BG="${ESC}104m"
+export readonly COLOR_BRIGHT_PURPLE_BG="${ESC}105m"
+export readonly COLOR_BRIGHT_CYAN_BG="${ESC}106m"
+export readonly COLOR_BRIGHT_WHITE_BG="${ESC}107m"
 
 
-# --- 背景色常量 (用于终端输出) ---
-export readonly BG_BLACK="\033[40m"
-export readonly BG_RED="\033[41m"
-export readonly BG_GREEN="\033[42m"
-export readonly BG_YELLOW="\033[43m"
-export readonly BG_BLUE="\033[44m"
-export readonly BG_MAGENTA="\033[45m"
-export readonly BG_CYAN="\033[46m"
-export readonly BG_WHITE="\033[47m" # 标准白色背景，在深色终端下可能显示为亮灰
 
-# 亮色背景（更常用，效果通常更明显）
-export readonly BG_LIGHT_BLACK="\033[100m" # 通常显示为深灰背景
-export readonly BG_LIGHT_RED="\033[101m"
-export readonly BG_LIGHT_GREEN="\033[102m"
-export readonly BG_LIGHT_YELLOW="\033[103m"
-export readonly BG_LIGHT_BLUE="\033[104m"
-export readonly BG_LIGHT_MAGENTA="\033[105m"
-export readonly BG_LIGHT_CYAN="\033[106m"
-export readonly BG_LIGHT_WHITE="\033[107m" # 通常显示为亮白背景
 
 # --- 日志级别显示宽度 (用于对齐终端输出) ---
 # 根据最长日志级别名称的长度 (e.g., "SUCCESS", "SUMMARY" 都是7个字符)
@@ -601,13 +619,13 @@ _log_message_core() {
     local default_message_color_code="${COLOR_RESET}" # 消息内容部分的默认颜色
 
     case "$level" in
-        "INFO")    prefix_color_code="${COLOR_DARK_GRAY}"; default_message_color_code="${COLOR_WHITE}" ;;
-        "NOTICE")  prefix_color_code="${COLOR_GREEN}"; default_message_color_code="${COLOR_GREEN}" ;;
-        "SUCCESS") prefix_color_code="${COLOR_BOLD}${COLOR_GREEN}"; default_message_color_code="${COLOR_GREEN}" ;; # 成功信息，加粗绿色
-        "WARN")    prefix_color_code="${COLOR_YELLOW}"; default_message_color_code="${COLOR_YELLOW}" ;;
-        "ERROR")   prefix_color_code="${COLOR_RED}"; default_message_color_code="${COLOR_RED}" ;;
-        "FATAL")   prefix_color_code="${BG_RED}${COLOR_WHITE}"; default_message_color_code="${BG_RED}${COLOR_WHITE}" ;;
-        "DEBUG")   prefix_color_code="${COLOR_BLUE}"; default_message_color_code="${COLOR_BLUE}" ;;
+        "INFO")    prefix_color_code="${COLOR_BRIGHT_BLACK_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_BRIGHT_BLACK}" ;;
+        "NOTICE")  prefix_color_code="${COLOR_GREEN_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_BRIGHT_GREEN}" ;;
+        "SUCCESS") prefix_color_code="${COLOR_BLUE_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_BLUE_BG}${COLOR_BOLD}${COLOR_WHITE}" ;; # 成功信息，加粗绿色
+        "WARN")    prefix_color_code="${COLOR_YELLOW_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_YELLOW}" ;;
+        "ERROR")   prefix_color_code="${COLOR_RED_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_RED}" ;;
+        "FATAL")   prefix_color_code="${COLOR_PURPLE_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_RED_BG}${COLOR_WHITE}" ;;
+        "DEBUG")   prefix_color_code="${COLOR_CYAN_BG}${COLOR_BOLD}${COLOR_WHITE}"; default_message_color_code="${COLOR_CYAN}" ;;
         "SUMMARY") 
             # 对于 SUMMARY，默认前景色就是其整体颜色，因此 optional_message_content_color 优先
             prefix_color_code="${optional_message_content_color:-$COLOR_PURPLE}" 
