@@ -155,6 +155,16 @@ if [[ ! -f "$_utils_path" || ! -r "$_utils_path" ]]; then
 fi
 source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
+# --- 5.1 导入包管理工具函数库 (package_management_utils.sh) ---
+_pkg_mgmt_utils_path="${LIB_DIR}/package_management_utils.sh"
+log_debug "【Step 5.1/7】 加载包管理工具库：package_management_utils.sh 从 '$_pkg_mgmt_utils_path'..."
+if [[ ! -f "$_pkg_mgmt_utils_path" || ! -r "$_pkg_mgmt_utils_path" ]]; then
+    log_fatal "Fatal Error: Package management utility file not found or not readable: '$_pkg_mgmt_utils_path'."
+fi
+source "$_pkg_mgmt_utils_path" # <--- package_management_utils.sh 及其函数现在可用
+log_debug "Package management utilities sourced."
+
+
 # 此时 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 echo -e "[$(date +"%Y-%m-%d %H:%M:%S")] \033[0;34mDEBUG:\033[0m [environment_setup]【Step 6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
 log_debug "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, CURRENT_LOG_LEVEL: $CURRENT_LOG_LEVEL."

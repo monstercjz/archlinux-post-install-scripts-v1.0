@@ -85,8 +85,8 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 基础路径键: BASE_PATH_MAP 中定义的键 (例如 "core_modules", "extra_modules")
 declare -A SYSTEM_BASE_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
-    [1]="系统镜像配置 (镜像源修改为国内)|menu:core_modules:01_system_base/01_configure_mirrors.sh"
-    [2]="三方镜像配置 (添加中文社区软件源及秘钥)|menu:core_modules:01_system_base/00_user_environment_menu.sh"
+    [1]="系统镜像配置 (镜像源修改为国内)|action:core_modules:01_system_base/01_configure_mirrors.sh"
+    [2]="三方镜像配置 (添加中文社区软件源及秘钥)|menu:core_modules:01_system_base/02_add_archlinuxcn_repo.sh"
     [3]="网络信息配置(修改网络信息)|menu:core_modules:01_system_base/03_setup_network.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
