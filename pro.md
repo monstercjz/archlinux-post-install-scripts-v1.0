@@ -62,7 +62,7 @@ archlinux-post-install-scripts-v1.0/
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/environment_setup.sh
-# 版本: 1.0.21 (最终版：协调所有全局变量的赋值)
+# 版本: 1.0.24 (优化：只在首次执行时进行环境确认)
 # 日期: 2025-06-08
 # 描述: 核心环境设置脚本。由所有入口脚本的顶部引导块调用。
 #       负责在 BASE_DIR 确定后，完成项目运行环境的后续初始化。
@@ -71,27 +71,27 @@ archlinux-post-install-scripts-v1.0/
 #   1. 执行 Root 权限检查 (最早执行)。
 #   2. 验证 BASE_DIR 是否已由调用脚本确定。
 #   3. 加载主配置文件 (main_config.sh)。
-#   4. 定义并导出核心子目录变量 (CONFIG_DIR, LIB_DIR, MODULES_DIR, ASSETS_DIR)。
+#   4. 根据 BASE_DIR 动态计算并赋值所有核心目录变量 (CONFIG_DIR, LIB_DIR, MODULES_DIR, ASSETS_DIR 等)。
 #   5. 导入核心工具函数库 (utils.sh)，并进行错误检查。
-#   6. 获取并导出调用 sudo 的原始用户及其家目录 (ORIGINAL_USER, ORIGINAL_HOME)。
-#   7. 赋值 DOTFILES_LOCAL_PATH。
-#   8. 调用 initialize_logging_system 初始化日志系统。
-#   9. 显示初始化统计，并等待用户确认。
+#   6. 获取并赋值调用 sudo 的原始用户及其家目录 (ORIGINAL_USER, ORIGINAL_HOME)，
+#      并计算 DOTFILES_LOCAL_PATH。
+#   7. 调用 initialize_logging_system 初始化日志系统。
+#   8. 显示初始化统计，并等待用户确认（仅在 _SETUP_INITIAL_CONFIRMED 未设置时）。
 # ------------------------------------------------------------------------------
 # 使用方法: (此文件不应被直接调用，而是由各脚本的顶部引导块 source)
 #   source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoint"
 # ------------------------------------------------------------------------------
 # 变更记录:
-# v1.0.0 - 2025-06-08 - 初始版本。
-# v1.0.1 - 2025-06-08 - 修复了在顶层作用域使用 'local' 关键字的错误。
-# v1.0.2 - 2025-06-08 - 优化初始化流程的逻辑顺序，增加调试输出，提升可追踪性。
-# v1.0.3 - 2025-06-08 - 将 Root 权限检查提前到文件最顶端。
-# v1.0.4 - 2025-06-08 - 优化流程：在确定 BASE_DIR 之前直接导入 utils.sh。
-# v1.0.5 - 2025-06-08 - BASE_DIR 确定逻辑移至调用脚本的顶部引导块；自身不再查找 BASE_DIR。
-# v1.0.6 - 2025-06-08 - 修正了顶部引导块中 BASE_DIR 每次都查找的问题，实现按需查找。
-# v1.0.7 - 2025-06-08 - __SOURCED__ 变量不再导出，确保子进程重新加载函数。
-# v1.0.8 - 2025-06-08 - 修正了 utils.sh 加载时序问题，确保日志函数调用前已可用。
-# v1.0.9 - 2025-06-08 - 修正了 environment_setup.sh 内部 main_config_path 声明时使用 'local' 的错误。
+# v1.0.0  - 2025-06-08 - 初始版本。
+# v1.0.1  - 2025-06-08 - 修复了在顶层作用域使用 'local' 关键字的错误。
+# v1.0.2  - 2025-06-08 - 优化初始化流程的逻辑顺序，增加调试输出，提升可追踪性。
+# v1.0.3  - 2025-06-08 - 将 Root 权限检查提前到文件最顶端。
+# v1.0.4  - 2025-06-08 - 优化流程：在确定 BASE_DIR 之前直接导入 utils.sh。
+# v1.0.5  - 2025-06-08 - BASE_DIR 确定逻辑移至调用脚本的顶部引导块；自身不再查找 BASE_DIR。
+# v1.0.6  - 2025-06-08 - 修正了顶部引导块中 BASE_DIR 每次都查找的问题，实现按需查找。
+# v1.0.7  - 2025-06-08 - __SOURCED__ 变量不再导出，确保子进程重新加载函数。
+# v1.0.8  - 2025-06-08 - 修正了 utils.sh 加载时序问题，确保日志函数调用前已可用。
+# v1.0.9  - 2025-06-08 - 修正了 environment_setup.sh 内部 main_config_path 声明时使用 'local' 的错误。
 # v1.0.10 - 2025-06-08 - 修正了 ORIGINAL_HOME 变量在 main_config.sh 加载前未赋值的问题。
 # v1.0.11 - 2025-06-08 - 优化日志调用者信息显示。
 # v1.0.12 - 2025-06-08 - 新增对 utils.sh source 的错误检查。
@@ -100,8 +100,15 @@ archlinux-post-install-scripts-v1.0/
 # v1.0.15 - 2025-06-08 - 在所有初始化步骤完成后，显示环境统计摘要并等待用户确认。
 # v1.0.16 - 2025-06-08 - 引入并应用新的颜色 (例如 COLOR_PURPLE) 用于总结性输出。
 # v1.0.17 - 2025-06-08 - 应用新的 SUMMARY 日志级别。
-# v1.0.18 - 2025-06-08 - **统一调用 initialize_logging_system() 函数来完成日志系统初始化。**
-# v1.0.21 - 2025-06-08 - **最终优化：调整main_confing调用顺序。**
+# v1.0.18 - 2025-06-08 - 统一调用 initialize_logging_system() 函数来完成日志系统初始化。
+# v1.0.21 - 2025-06-08 - 最终优化：调整main_confing调用顺序。
+# v1.0.22 - 2025-06-08 - 核心重构：适配 main_config.sh v1.0.5 作为全局变量声明中心。
+#                        移除重复的 'export' 关键字，只进行赋值。
+#                        计算并赋值 ANOTHER_MODULES_DIR, DOTFILES_LOCAL_PATH, LOG_ROOT。
+#                        填充 BASE_PATH_MAP 关联数组。
+# v1.0.23 - 2025-06-08 - 优化：将 LOG_ROOT 的计算和赋值移至第 4 步，与其它核心目录变量一同处理。
+# v1.0.24 - 2025-06-08 - **核心优化：引入 _SETUP_INITIAL_CONFIRMED 标志，确保环境初始化时的用户确认提示只在顶层脚本首次执行时出现，避免子进程重复提示。**
+#                        **此版本需要用户在 run_setup.sh 和 main_menu.sh 等入口脚本顶部手动 unset _SETUP_INITIAL_CONFIRMED。**
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -130,7 +137,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
     echo -e "\033[0;31mError: This script must be run with root privileges (using 'sudo').\033[0m" >&2
     echo -e "\033[0;31mPlease run: sudo $(basename "$_caller_script_path")\033[0m" >&2
-    echo -e "\033[0;31m=====================================================================${COLOR_RESET}\033[0m" >&2
+    echo -e "\033[0;31m=====================================================================\033[0m" >&2
     read -rp "Press any key to exit..." -n 1
     echo "" # 打印一个换行符，使提示符在新行显示
     exit 1
@@ -145,7 +152,7 @@ if [ -z "${BASE_DIR+set}" ] || [ -z "$BASE_DIR" ]; then
     echo -e "\033[0;31mFatal Error:\033[0m [environment_setup] BASE_DIR was not set by the calling script's initialization block." >&2
     echo -e "\033[0;31mThis indicates a critical issue with the script's core setup. Exiting.\033[0m" >&2
     read -rp "Press any key to exit..." -n 1
-    echo "" 
+    echo ""
     exit 1
 fi
 
@@ -155,33 +162,48 @@ fi
 
 # --- 3. 加载主配置文件 (main_config.sh) ---
 # 此文件会声明所有全局 export 变量，并为静态配置项提供默认值。
+# 注意：main_config.sh 中的变量会在此处被加载到当前 shell 环境中，并继承其 'export' 属性。
 main_config_path="${BASE_DIR}/config/main_config.sh" 
-# echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing main_config.sh from '$main_config_path'..." >&2
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【3/7】 加载配置文件：main_config 从 '$main_config_path'..." >&2
 if [[ ! -f "$main_config_path" || ! -r "$main_config_path" ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
-    echo -e "\033[0;31mFatal Error:\033[0m Main configuration file not found or not readable: '$_utils_path'." >&2
+    echo -e "\033[0;31mFatal Error:\033[0m Main configuration file not found or not readable: '$main_config_path'." >&2
     echo -e "\033[0;31mPlease ensure '$main_config_path' exists and has read permissions.${_C_RESET}\033[0m" >&2
     read -rp "Press any key to exit..." -n 1
-    echo "" 
+    echo ""
     exit 1
 fi
 . "$main_config_path" # <--- 加载所有 main_config.sh 中声明的变量和默认值
 
-# --- 4. 定义核心子目录变量 ---
-# 这些变量的值依赖于 BASE_DIR，由 environment_setup.sh 在运行时计算并 export。
-# 注意：这些变量在 main_config.sh 中有声明，这里是再次声明和赋值。
+# ==============================================================================
+# 阶段 3: 基于已加载的 main_config.sh 和后续 utils.sh，初始化剩余环境
+# ==============================================================================
+
+# --- 4. 定义核心目录变量并填充基础路径映射 ---
+# 这些变量的值依赖于 BASE_DIR。它们已在 main_config.sh 中声明并标记为 export。
+# 此处仅进行赋值。
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【4/7】 补全生成项目各资源文件夹路径..." >&2
-export CONFIG_DIR="${BASE_DIR}/config"
-export LIB_DIR="${CONFIG_DIR}/lib"
-export MODULES_DIR="${CONFIG_DIR}/modules"
-export ASSETS_DIR="${CONFIG_DIR}/assets" 
-# 注意：此时还不能使用 log_debug，因为 utils.sh 尚未加载。
+CONFIG_DIR="${BASE_DIR}/config"
+LIB_DIR="${CONFIG_DIR}/lib"
+MODULES_DIR="${CONFIG_DIR}/modules"
+ASSETS_DIR="${CONFIG_DIR}/assets" 
+ANOTHER_MODULES_DIR="${BASE_DIR}/modules-another" # 假设与 config/ 目录并列，已在 main_config.sh 中声明
+
+# 赋值 LOG_ROOT (依赖 BASE_DIR 和 LOG_ROOT_RELATIVE_TO_BASE)。LOG_ROOT 已在 main_config.sh 中声明。
+LOG_ROOT="${BASE_DIR}/${LOG_ROOT_RELATIVE_TO_BASE}"
+
+# 填充 BASE_PATH_MAP 关联数组。该数组已在 main_config.sh 中声明。
+# 注意：在 utils.sh 加载后会打印调试信息。
+BASE_PATH_MAP=(
+    ["core_modules"]="${MODULES_DIR}"
+    ["extra_modules"]="${ANOTHER_MODULES_DIR}"
+    # 可以在 main_config.sh 中声明并在 BASE_PATH_MAP 中添加更多逻辑名称到实际路径的映射
+    # 例如：["third_party_scripts"]="/opt/my_scripts"
+)
 
 # --- 5. 导入核心工具函数库 (utils.sh) ---
 # utils.sh 内部不声明全局 export 变量，仅使用它们。
 _utils_path="${LIB_DIR}/utils.sh" 
-# echo -e "\033[0;34mDEBUG:\033[0m [environment_setup] Sourcing utils.sh from '$_utils_path'..." >&2
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【5/7】 加载核心工具库：utils.sh 从 '$_utils_path'..." >&2
 if [[ ! -f "$_utils_path" || ! -r "$_utils_path" ]]; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
@@ -193,28 +215,25 @@ if [[ ! -f "$_utils_path" || ! -r "$_utils_path" ]]; then
 fi
 source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
-# ==============================================================================
-# 阶段 3: 基于已加载的 utils.sh 和配置，初始化剩余环境
-# ==============================================================================
-
+# 此时 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
-# 现在 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
-log_info "main_config.sh loaded. LOG_ROOT: $LOG_ROOT, DEBUG_MODE: $DEBUG_MODE."
+log_notice "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
 log_info "utils.sh sourced. Core utilities and logging functions are now available."
 log_debug "Root privileges confirmed." 
 log_info "BASE_DIR confirmed: '$BASE_DIR'."
-log_debug "Core directory variables defined: CONFIG_DIR=$CONFIG_DIR, LIB_DIR=$LIB_DIR, MODULES_DIR=$MODULES_DIR, ASSETS_DIR=$ASSETS_DIR"
+log_debug "Core directory variables defined: CONFIG_DIR=$CONFIG_DIR, LIB_DIR=$LIB_DIR, MODULES_DIR=$MODULES_DIR, ASSETS_DIR=$ASSETS_DIR, ANOTHER_MODULES_DIR=$ANOTHER_MODULES_DIR"
+log_debug "LOG_ROOT calculated: '$LOG_ROOT'." # 调试信息移到 utils.sh 加载后
+log_debug "BASE_PATH_MAP populated: $(declare -p BASE_PATH_MAP)" # 打印关联数组的完整内容，方便调试
 
 # --- 6. 获取调用 sudo 的原始用户和其家目录 (ORIGINAL_USER, ORIGINAL_HOME) ---
-# _get_original_user_and_home 内部会根据 SUDO_USER 动态计算并 export ORIGINAL_USER, ORIGINAL_HOME。
-# 这将是 ORIGINAL_USER 和 ORIGINAL_HOME 的首次赋值。
-# log_debug "Determining original user and home directory..."
-# if [ -z "${ORIGINAL_USER+set}" ] || [ -z "$ORIGINAL_USER" ]; then # 每次都调用，确保值正确
-_get_original_user_and_home # 此函数内部会 export ORIGINAL_USER 和 ORIGINAL_HOME
+# ORIGINAL_USER 和 ORIGINAL_HOME 已在 main_config.sh 中声明。
+# _get_original_user_and_home 函数内部会处理赋值和 export。
+_get_original_user_and_home 
 log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
-# else
-#     log_debug "ORIGINAL_USER already set in environment: $ORIGINAL_USER."
-# fi
+
+# 赋值 DOTFILES_LOCAL_PATH (依赖 ORIGINAL_HOME)。DOTFILES_LOCAL_PATH 已在 main_config.sh 中声明。
+DOTFILES_LOCAL_PATH="${ORIGINAL_HOME}/.dotfiles"
+log_info "Dotfiles local path set to: '$DOTFILES_LOCAL_PATH'."
 
 
 # ==============================================================================
@@ -222,8 +241,7 @@ log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
 # ==============================================================================
 
 # --- 7. 调用 initialize_logging_system 初始化日志系统 ---
-# initialize_logging_system 内部会定义并 export CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE。
-# log_debug "Initializing logging system fully..."
+# initialize_logging_system 内部会赋值 CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE。
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【7/7】 初始化日志系统--文件记录..." >&2
 if ! initialize_logging_system "$_caller_script_path"; then
     echo -e "\033[0;31m=====================================================================\033[0m" >&2
@@ -240,24 +258,34 @@ log_info "Logging system fully initialized. Current script log file: '$CURRENT_S
 # 阶段 5: 初始化统计与用户确认阶段
 # ==============================================================================
 
-# --- . 显示初始化统计，并等待用户确认 ---
-display_header_section "Environment Setup Summary" "box" 80 "${COLOR_CYAN}" "${COLOR_BOLD}${COLOR_YELLOW}"
+# 仅当 _SETUP_INITIAL_CONFIRMED 变量未被设置时，才显示初始化统计并等待用户确认。
+# _SETUP_INITIAL_CONFIRMED 会在首次确认后被 export，使得子 Shell 继承并跳过确认。
+# 为了确保在每次顶层启动时都提示，run_setup.sh 和 main_menu.sh 等入口脚本顶部需要显式地 'unset _SETUP_INITIAL_CONFIRMED'。
+if [ -z "${_SETUP_INITIAL_CONFIRMED+set}" ]; then
+    display_header_section "Environment Setup Summary" "box" 80 "${COLOR_CYAN}" "${COLOR_BOLD}${COLOR_YELLOW}"
 
-log_summary "--------------------------------------------------"
-log_summary "Project: ${PROJECT_NAME} ${PROJECT_VERSION}"
-log_summary "Author: ${PROJECT_AUTHOR}"
-log_summary "Description: ${PROJECT_DESCRIPTION}"
-log_summary "--------------------------------------------------"
-log_summary "Running as: root (Original User: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
-log_summary "Project Root: ${BASE_DIR}"
-log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
-log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
-log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
-log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
-log_summary "--------------------------------------------------"
+    log_summary "--------------------------------------------------"
+    log_summary "Project: ${PROJECT_NAME} ${PROJECT_VERSION}"
+    log_summary "Author: ${PROJECT_AUTHOR}"
+    log_summary "Description: ${PROJECT_DESCRIPTION}"
+    log_summary "--------------------------------------------------"
+    log_summary "Running as: root (Original User: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
+    log_summary "Project Root: ${BASE_DIR}"
+    log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
+    log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
+    log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
+    log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
+    log_summary "--------------------------------------------------"
 
-log_info "Environment setup completed successfully. Please review the above details and the log file."
-read -rp "$(echo -e "${COLOR_YELLOW}Press Enter to continue or Ctrl+C to abort...${COLOR_RESET}")"
+    log_info "Environment setup completed successfully. Please review the above details and the log file."
+    read -rp "$(echo -e "${COLOR_YELLOW}Press Enter to continue or Ctrl+C to abort...${COLOR_RESET}")"
+    
+    # 标记已确认，并导出此变量，以便后续子 Shell 继承并跳过确认。
+    export _SETUP_INITIAL_CONFIRMED="true"
+    log_debug "Initial environment setup confirmation completed and flag exported."
+else
+    log_debug "Initial environment setup already confirmed. Skipping prompt."
+fi
 
 # 标记此初始化脚本已被加载 (不导出)
 __ENVIRONMENT_SETUP_SOURCED__="true"
@@ -291,6 +319,11 @@ log_debug "Environment setup complete. All core variables exported."
 
 # 严格模式：
 set -euo pipefail
+
+# === 核心优化：确保每次顶层启动都提示环境确认 ===
+# 在脚本执行的最开始，清除 _SETUP_INITIAL_CONFIRMED 变量。
+# 这可以确保当用户从终端手动运行此脚本时，环境确认提示会重新出现。
+unset _SETUP_INITIAL_CONFIRMED
 
 # 获取当前正在执行（或被 source）的脚本的绝对路径。
 # BASH_SOURCE[0] 指向当前文件自身。如果此文件被 source，则 BASH_SOURCE[1] 指向调用者。
@@ -395,6 +428,7 @@ exit_script 0
 #                      的声明保留在 utils.sh，因为它们是日志模块的动态输出。
 # v2.0.3 - 2025-06-08 - **进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。**
 #                      **其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。**
+# v2.0.4 - 2025-06-08 - **新增通用确认提示函数 `_confirm_action`，提高代码复用性。**
 # ==============================================================================
 
 # 严格模式：
@@ -426,14 +460,40 @@ export CURRENT_DAY_LOG_DIR
 # --- 颜色常量 (用于终端输出) ---
 # 这些变量在 utils.sh 首次被 source 时初始化，并被 export readonly 到环境中。
 # 确保所有子进程都能继承并使用这些颜色代码。
-export readonly COLOR_BLUE="\033[0;34m"   # 蓝色
-export readonly COLOR_GREEN="\033[0;32m"  # 绿色
-export readonly COLOR_RED="\033[0;31m"    # 红色
-export readonly COLOR_YELLOW="\033[0;33m" # 黄色
-export readonly COLOR_PURPLE="\033[0;35m" # 紫色 (用于 SUMMARY 级别默认颜色)
-export readonly COLOR_CYAN="\033[0;36m"   # 青色 (备用或用于特殊提示，如边框)
+
+export readonly COLOR_DARK_GRAY='\033[1;30m' # 暗灰色 (info)
+export readonly COLOR_GREEN="\033[0;32m"  # 绿色 (notice)
+export readonly COLOR_RED="\033[0;31m"    # 红色 (Error)
+export readonly COLOR_YELLOW="\033[0;33m" # 黄色 (Warn)
+export readonly COLOR_BLUE="\033[0;34m"   # 蓝色 (Debug)
+export readonly COLOR_PURPLE="\033[0;35m" # 紫色 (Summary 默认) - 注意：与 MAGENTA 默认值相同，可根据终端表现选择
+export readonly COLOR_CYAN="\033[0;36m"   # 青色 (交错行/边框)
+export readonly COLOR_WHITE="\033[0;37m"  # 白色 (新增，用于 Box Header Style 标题)
 export readonly COLOR_BOLD="\033[1m"      # 粗体 (Bold) 属性
 export readonly COLOR_RESET="\033[0m"     # 重置所有属性到默认值
+
+
+
+
+# --- 背景色常量 (用于终端输出) ---
+export readonly BG_BLACK="\033[40m"
+export readonly BG_RED="\033[41m"
+export readonly BG_GREEN="\033[42m"
+export readonly BG_YELLOW="\033[43m"
+export readonly BG_BLUE="\033[44m"
+export readonly BG_MAGENTA="\033[45m"
+export readonly BG_CYAN="\033[46m"
+export readonly BG_WHITE="\033[47m" # 标准白色背景，在深色终端下可能显示为亮灰
+
+# 亮色背景（更常用，效果通常更明显）
+export readonly BG_LIGHT_BLACK="\033[100m" # 通常显示为深灰背景
+export readonly BG_LIGHT_RED="\033[101m"
+export readonly BG_LIGHT_GREEN="\033[102m"
+export readonly BG_LIGHT_YELLOW="\033[103m"
+export readonly BG_LIGHT_BLUE="\033[104m"
+export readonly BG_LIGHT_MAGENTA="\033[105m"
+export readonly BG_LIGHT_CYAN="\033[106m"
+export readonly BG_LIGHT_WHITE="\033[107m" # 通常显示为亮白背景
 
 # ==============================================================================
 # 内部辅助函数 (以 "_" 开头命名，不对外暴露，主要供其他 utils.sh 函数调用)
@@ -817,7 +877,8 @@ _log_message_core() {
     # 根据日志级别设置终端颜色。
     local terminal_color_code="${COLOR_RESET}"
     case "$level" in
-        "INFO")    terminal_color_code="${COLOR_GREEN}" ;;
+        "INFO")    terminal_color_code="${COLOR_DARK_GRAY}" ;;
+        "NOTICE")  terminal_color_code="${COLOR_GREEN}" ;; # 新增 NOTICE 级别颜色
         "WARN")    terminal_color_code="${COLOR_YELLOW}" ;;
         "ERROR")   terminal_color_code="${COLOR_RED}" ;;
         "DEBUG")   terminal_color_code="${COLOR_BLUE}" ;;
@@ -951,6 +1012,7 @@ _get_current_day_log_dir() {
 # 参数: $1 (message) - 要记录的日志消息。
 #       $2 (optional_color_code) - 仅 log_summary 接受，用于指定颜色。
 log_info() { _log_message_core "INFO" "$1"; }
+log_notice() { _log_message_core "NOTICE" "$1"; } # 新增 NOTICE 级别封装函数
 log_warn() { _log_message_core "WARN" "$1" >&2; }
 log_error() { _log_message_core "ERROR" "$1" >&2; }
 log_debug() {
@@ -1078,5 +1140,136 @@ handle_error() {
     log_error "Script execution terminated due to previous error."
     exit "$exit_code"
 }
+# _confirm_action()
+# 功能: 显示一个带颜色的确认提示，并等待用户输入 (y/N)。
+# 参数: $1 (prompt_text) - 提示用户的文本。
+#       $2 (default_yn) - 默认响应 ('y' 或 'n'，不区分大小写)。
+#       $3 (color_code) - 提示文本的颜色代码 (例如 ${COLOR_YELLOW}, ${COLOR_RED})。
+# 返回: 0 (用户输入 Y/y), 1 (用户输入 N/n 或直接回车)。
+_confirm_action() {
+    local prompt_text="$1"
+    local default_yn="${2:-n}" # Default to 'n' for safety if not provided
+    local color_code="${3:-${COLOR_YELLOW}}" # Default to yellow if not provided
 
+    local response
+    read -rp "$(echo -e "${color_code}${prompt_text} (y/N): ${COLOR_RESET}")" response
+    response="${response:-$default_yn}" # If empty, use default
+
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
 ```
+## main_config.sh
+```bash
+#!/bin/bash
+# ==============================================================================
+# 项目: archlinux-post-install-scripts
+# 文件: config/main_config.sh
+# 版本: 1.0.5 (优化：作为全局变量的中心声明清单)
+# 日期: 2025-06-08
+# 描述: 整个项目的主配置文件。
+#       此文件作为所有项目级别全局变量的中心声明清单，并为可配置项提供默认值。
+#       其所有 'export' 变量均可被后续脚本覆盖，动态派生变量在此处仅作声明。
+# ------------------------------------------------------------------------------
+# 变更记录:
+# v1.0.0 - 2025-06-08 - 初始版本。
+# v1.0.1 - 2025-06-08 - 集中定义所有 export 全局变量的初始/默认值，实现可覆盖机制。
+# v1.0.2 - 2025-06-08 - 优化变量声明：只包含静态/初始配置，移除动态派生变量的声明。
+# v1.0.3 - 2025-06-08 - 修正了 ORIGINAL_USER, ORIGINAL_HOME 和 DOTFILES_LOCAL_PATH 的声明逻辑，
+#                        明确这些变量由 environment_setup.sh 在运行时动态赋值。
+# v1.0.4 - 2025-06-08 - 进一步精简，只包含静态配置和默认值。移除了所有运行时动态派生的路径变量
+#                        （如 CONFIG_DIR, MODULES_DIR, LOG_ROOT, DOTFILES_LOCAL_PATH）
+#                        以及运行时确定的用户变量（ORIGINAL_USER, ORIGINAL_HOME）。
+#                        引入 LOG_ROOT_RELATIVE_TO_BASE 来定义日志根目录相对于 BASE_DIR 的相对位置。
+#                        软件安装数组不再使用 'export' 关键字。
+# v1.0.5 - 2025-06-08 - **核心优化：将所有项目级全局变量在此处进行 'export' 声明，**
+#                        **使其成为全局变量的中心清单。对于动态派生变量，在此处仅声明不赋值，**
+#                        **其具体值仍由 environment_setup.sh 在运行时确定和赋值。**
+#                        **新增 BASE_PATH_MAP 的声明。**
+# ==============================================================================
+
+# 严格模式 (仅作为良好实践保留，实际加载此文件时，环境已由父脚本或 environment_setup.sh 设置)
+# set -euo pipefail
+
+# ==============================================================================
+# 项目级全局变量声明与默认值赋值 (所有项目级变量在此处声明，可配置项赋默认值)
+# ==============================================================================
+
+# --- 项目信息 (通常为静态配置，在运行时不应被覆盖) ---
+export PROJECT_NAME="Arch Linux Post-Installation Setup"
+export PROJECT_VERSION="v1.0"
+export PROJECT_AUTHOR="Your Name/Organization"
+export PROJECT_DESCRIPTION="A modular script project for automating Arch Linux post-installation configuration and software setup."
+
+# --- 核心路径变量 (由 environment_setup.sh 动态计算并赋值) ---
+# 这些变量在此处声明，但在 environment_setup.sh 中根据 BASE_DIR 动态确定其绝对路径。
+export BASE_DIR        # 项目根目录的绝对路径 (由调用脚本的顶部引导块确定并导出)
+export CONFIG_DIR      # 项目配置目录的绝对路径 (例如: ${BASE_DIR}/config)
+export LIB_DIR         # 项目库文件目录的绝对路径 (例如: ${CONFIG_DIR}/lib)
+export MODULES_DIR     # 默认模块根目录的绝对路径 (例如: ${CONFIG_DIR}/modules)
+export ASSETS_DIR      # 资产文件目录的绝对路径 (例如: ${CONFIG_DIR}/assets)
+export ANOTHER_MODULES_DIR # 另一个模块根目录的绝对路径 (例如: ${BASE_DIR}/modules-another)
+
+# --- 运行时用户和环境变量 (由 environment_setup.sh 动态确定并赋值) ---
+# 这些变量在此处声明，但其值在 environment_setup.sh 中根据运行时环境动态确定。
+export ORIGINAL_USER   # 调用 sudo 的原始用户的用户名
+export ORIGINAL_HOME   # 调用 sudo 的原始用户的家目录
+export DOTFILES_LOCAL_PATH # 点文件在本地克隆的绝对路径 (依赖 ORIGINAL_HOME)
+
+# --- 日志配置 (LOG_ROOT_RELATIVE_TO_BASE 为可配置默认值，LOG_ROOT 为动态派生) ---
+export LOG_ROOT_RELATIVE_TO_BASE="logs" # 日志文件存放的根目录，相对于项目根目录 (BASE_DIR) 的路径
+export LOG_ROOT        # 日志文件根目录的绝对路径 (由 environment_setup.sh 动态计算并赋值)
+export CURRENT_DAY_LOG_DIR # 当前日期日志目录的绝对路径 (由 initialize_logging_system 动态计算并赋值)
+export CURRENT_SCRIPT_LOG_FILE # 当前脚本日志文件的绝对路径 (由 initialize_logging_system 动态计算并赋值)
+
+# --- 菜单框架基础路径映射 (由 environment_setup.sh 动态计算并赋值) ---
+# 这是一个关联数组，映射逻辑名称到实际的绝对路径。
+# 关联数组无法直接通过 'export' 继承到子进程，但在此处声明其存在性。
+# 实际的填充和使用在 environment_setup.sh 和 menu_framework.sh 中。
+declare -A BASE_PATH_MAP # 声明为关联数组，供后续在 environment_setup.sh 中填充
+
+# --- 日志和调试设置 (可配置的默认值) ---
+export ENABLE_COLORS="true"  # 控制终端输出是否带颜色 (true/false)
+export DEBUG_MODE="true"     # 控制是否开启调试日志 (true/false)
+
+# --- 用户环境相关默认设置 (可配置的默认值) ---
+export DEFAULT_EDITOR="nano" # 默认文本编辑器 (例如: nano, vim, micro)
+export DEFAULT_SHELL="zsh"   # 默认 shell (例如: bash, zsh)
+export DOTFILES_REPO_URL="https://github.com/your-username/your-dotfiles.git" # 你的点文件仓库URL
+
+# --- 包管理相关默认设置 (可配置的默认值) ---
+export AUR_HELPER="yay" # 默认的 AUR 助手 (例如: yay, paru)
+export PACMAN_CONF_PATH="/etc/pacman.conf"
+export PACMAN_MIRRORLIST_PATH="/etc/pacman.d/mirrorlist"
+export PACMAN_HOOKS_DIR="/etc/pacman.d/hooks"
+
+# --- 网络配置相关默认设置 (可配置的默认值) ---
+export NETWORK_MANAGER_TYPE="systemd-networkd" # 默认网络管理器类型 (例如: NetworkManager, systemd-networkd)
+export SYSTEMD_NETWORKD_CONFIG_DIR="/etc/systemd/network"
+
+# --- 软件安装默认列表 (注意：Bash 数组无法通过 'export' 继承到子进程，仅在当前 shell 可用) ---
+declare -a PKG_ESSENTIAL_SOFTWARE=("base-devel" "git" "curl" "wget" "unzip" "tar" "htop" "neofetch" "fastfetch")
+declare -a PKG_COMMON_SOFTWARE=("firefox" "vlc" "thunderbird" "gimp" "inkscape" "code")
+declare -a PKG_SPECIFIC_APPS=()
+
+# --- 其他通用配置 (可配置的默认值) ---
+export CLEAN_BUILD_CACHE="true"
+```
+
+## 现在需要修改的
+重构_log_message_core或者拆分，同事修改相关的函数
+1. 实现如下效果：通过引入全局变量CURRENT_LOG_LEVEL，控制日志输出的级别。而不是现在单纯的debug开关
+2. 控制台显示内容支持多方案，目前是全部带色彩或者不带色彩，扩展：日志级别带前景色和背景色，其他内容不带色彩或者带色彩
+    - 扩展之后应该有多种组合：第一种，全部不带色彩，第二种，日志级别带前景色背景色，其他不带色彩，第三种，日志级别带前景色背景色，其他带色彩
+    - 重构的log封装函数，接收的命令：日志级别，日志消息内容，日志消息模式，日志颜色模式 日志消息内容颜色
+    - 其中，日志消息模式指：包含时间戳+日志级别+调用脚本名称，不包含时间戳+日志级别+调用脚本名称，包含部分时间戳或日志级别或调用脚本名称
+    - 其中，日志颜色模式指：标识带前景色背景色其他不带色，标志带前景色背景色其他黛色，全部不带颜色
+    - 日志消息模式可以缺省，默认为：包含时间戳+日志级别+调用脚本名称
+    - 日志颜色模式，默认为：标识带前景色背景色其他不带色
+    - 日志消息内容颜色，默认为：预定义的颜色
+    - 日志消息模式和日志颜色模式的参数值为：1 2 3 ，然后通过数值进行判断是具体哪种模式
+    - 同时添加一个全局参数display_mode，用于控制日志颜色模式的默认值，并且如果用户在使用的时候传递的是不是默认值，就根据用户传递的参数值进行显示
+3. 对于这个改动，你若有更好的方案，请提出来，改动过程不要破坏其他功能的代码，不要删现有的注释，做好版本更新记录

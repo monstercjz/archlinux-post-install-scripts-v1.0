@@ -157,7 +157,7 @@ source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
 # 此时 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 echo -e "\033[0;34mDEBUG:\033[0m [environment_setup]【6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
-log_notice "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
+#log_notice "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
 log_info "utils.sh sourced. Core utilities and logging functions are now available."
 log_debug "Root privileges confirmed." 
 log_info "BASE_DIR confirmed: '$BASE_DIR'."
@@ -191,7 +191,7 @@ if ! initialize_logging_system "$_caller_script_path"; then
     echo "" 
     exit 1
 fi
-log_info "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'."
+log_info "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'." 
 
 
 # ==============================================================================
@@ -213,7 +213,7 @@ if [ -z "${_SETUP_INITIAL_CONFIRMED+set}" ]; then
     log_summary "Project Root: ${BASE_DIR}"
     log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
     log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
-    log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
+    #log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
     log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
     log_summary "--------------------------------------------------"
 

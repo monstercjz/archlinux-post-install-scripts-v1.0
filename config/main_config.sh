@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/main_config.sh
-# 版本: 1.0.5 (优化：作为全局变量的中心声明清单)
+# 版本: 1.0.8 (新增 "timestamp_level" 消息格式模式)
 # 日期: 2025-06-08
 # 描述: 整个项目的主配置文件。
 #       此文件作为所有项目级别全局变量的中心声明清单，并为可配置项提供默认值。
@@ -19,10 +19,18 @@
 #                        以及运行时确定的用户变量（ORIGINAL_USER, ORIGINAL_HOME）。
 #                        引入 LOG_ROOT_RELATIVE_TO_BASE 来定义日志根目录相对于 BASE_DIR 的相对位置。
 #                        软件安装数组不再使用 'export' 关键字。
-# v1.0.5 - 2025-06-08 - **核心优化：将所有项目级全局变量在此处进行 'export' 声明，**
-#                        **使其成为全局变量的中心清单。对于动态派生变量，在此处仅声明不赋值，**
-#                        **其具体值仍由 environment_setup.sh 在运行时确定和赋值。**
-#                        **新增 BASE_PATH_MAP 的声明。**
+# v1.0.5 - 2025-06-08 - 核心优化：将所有项目级全局变量在此处进行 'export' 声明，
+#                        使其成为全局变量的中心清单。对于动态派生变量，在此处仅声明不赋值，
+#                        其具体值仍由 environment_setup.sh 在运行时确定和赋值。
+#                        新增 BASE_PATH_MAP 的声明。
+# v1.0.6 - 2025-06-08 - 新增 CURRENT_LOG_LEVEL 和 DISPLAY_MODE 配置项，
+#                        以更精细地控制日志输出级别和终端显示样式。
+#                        对日志和调试设置部分进行重组和增强。
+# v1.0.7 - 2025-06-08 - 新增 DEFAULT_MESSAGE_FORMAT_MODE 配置项，
+#                        用于控制终端日志消息的默认前缀格式（时间戳、级别、调用者）。
+#                        这为未来的消息格式定制（如简化“SUCCESS”消息）提供了基础。
+# v1.0.8 - 2025-06-08 - **在 DEFAULT_MESSAGE_FORMAT_MODE 中新增 "timestamp_level" 模式，**
+#                        **允许只显示时间戳和日志级别，不显示调用者信息。**
 # ==============================================================================
 
 # 严格模式 (仅作为良好实践保留，实际加载此文件时，环境已由父脚本或 environment_setup.sh 设置)
@@ -66,9 +74,28 @@ export CURRENT_SCRIPT_LOG_FILE # 当前脚本日志文件的绝对路径 (由 in
 declare -A BASE_PATH_MAP # 声明为关联数组，供后续在 environment_setup.sh 中填充
 
 # --- 日志和调试设置 (可配置的默认值) ---
-export ENABLE_COLORS="true"  # 控制终端输出是否带颜色 (true/false)
-export DEBUG_MODE="true"     # 控制是否开启调试日志 (true/false)
-export LOG_COLOR_MODE="level_only"
+# 控制是否开启所有颜色输出 (true/false)。如果为 false，则所有终端输出将不带颜色。
+export ENABLE_COLORS="true"
+
+# 定义日志输出的最低级别（仅影响终端显示，不影响文件记录）。
+# 可选值: "DEBUG", "INFO", "NOTICE", "SUCCESS", "WARN", "ERROR", "FATAL", "SUMMARY"
+export CURRENT_LOG_LEVEL="INFO" 
+
+# 定义终端日志的默认显示模式。
+# 可选值:
+#   "no_color":       终端输出完全不带色彩。
+#   "prefix_only_color": 日志级别前缀（如 [INFO]）带颜色，消息内容不带颜色。
+#   "all_color":      日志级别前缀和消息内容都带颜色（消息内容使用其默认颜色，或由函数调用时指定）。
+export DISPLAY_MODE="prefix_only_color"
+
+# 定义终端日志消息的默认格式模式（时间戳、级别、调用者信息的显示）。
+# 可选值:
+#   "full":            标准格式，显示 [时间戳] [级别] [调用者] 消息。
+#   "level_only":      简化格式，只显示 [级别] 消息 (例如用于 SUCCESS)。
+#   "no_prefix":       最简格式，只显示 消息 (无任何前缀)。
+#   "timestamp_level": 显示 [时间戳] [级别] 消息 (无调用者)。
+export DEFAULT_MESSAGE_FORMAT_MODE="timestamp_level"
+
 
 # --- 用户环境相关默认设置 (可配置的默认值) ---
 export DEFAULT_EDITOR="nano" # 默认文本编辑器 (例如: nano, vim, micro)
