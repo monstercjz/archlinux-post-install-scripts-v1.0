@@ -81,7 +81,7 @@ export ENABLE_COLORS="true"
 
 # 定义日志输出的最低级别（仅影响终端显示，不影响文件记录）。
 # 可选值: "DEBUG", "INFO", "NOTICE", "SUCCESS", "WARN", "ERROR", "FATAL", "SUMMARY"
-export CURRENT_LOG_LEVEL="DEBUG" 
+export CURRENT_LOG_LEVEL="INFO" 
 
 # 定义终端日志的默认显示模式。
 # 可选值:

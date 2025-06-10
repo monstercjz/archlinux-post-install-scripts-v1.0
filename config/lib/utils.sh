@@ -186,7 +186,7 @@ _create_directory_if_not_exists() {
     local dir_path="$1"
     if [ ! -d "$dir_path" ]; then
         if mkdir -p "$dir_path"; then 
-            log_info "Directory '$dir_path' created."
+            log_debug "Directory '$dir_path' created."
             return 0
         else
             log_error "Failed to create directory '$dir_path'. Permissions issue?"
@@ -218,10 +218,10 @@ _try_set_dir_acl() {
     local dir_path="$1"
     local user="$2"
     if command -v setfacl &>/dev/null; then
-        log_info "Attempting to use setfacl to grant write access to '$user' for '$dir_path'."
+        log_debug "Attempting to use setfacl to grant write access to '$user' for '$dir_path'."
         # -m: modify ACL, -d: default ACL (for new files/dirs), u: user, rwx: read, write, execute
         if setfacl -m u:"$user":rwx -d -m u:"$user":rwx "$dir_path"; then
-            log_info "setfacl successfully granted write access to '$user' for '$dir_path'."
+            log_debug "setfacl successfully granted write access to '$user' for '$dir_path'."
             return 0
         else
             log_error "setfacl failed for '$dir_path'."
@@ -250,11 +250,11 @@ _try_chown_chmod_dir_group_write() {
         return 1
     fi
 
-    log_info "Attempting to use chown/chmod to grant group write permissions for '$dir_path'."
+    log_debug "Attempting to use chown/chmod to grant group write permissions for '$dir_path'."
     # 更改目录的组所有者为 ORIGINAL_USER 的主组，并设置组写权限
     if chown "root:$user_primary_group" "$dir_path"; then
         if chmod g+w "$dir_path"; then
-            log_info "Changed group ownership to '$user_primary_group' and granted group write permissions for '$dir_path'."
+            log_debug "Changed group ownership to '$user_primary_group' and granted group write permissions for '$dir_path'."
             return 0
         else
             log_error "Failed to set group write permissions for '$dir_path'."
@@ -279,7 +279,7 @@ _ensure_log_dir_user_owned() {
     local dir_path="$1"
     local user="$2"
     
-    log_info "Checking/creating log directory '$dir_path' for user '$user'..."
+    log_debug "Checking/creating log directory '$dir_path' for user '$user'..."
 
     # 1. 创建目录 (如果不存在) - 调用辅助函数 _create_directory_if_not_exists
     if ! _create_directory_if_not_exists "$dir_path"; then
@@ -307,7 +307,7 @@ _ensure_log_dir_user_owned() {
         fi
     fi
 
-    log_info "Log directory '$dir_path' is writable by '$user'."
+    log_debug "Log directory '$dir_path' is writable by '$user'."
     return 0
 }
 
@@ -327,7 +327,7 @@ _create_and_secure_log_file() {
         echo "${COLOR_RED}Error:${COLOR_RESET} Failed to create log file '$file_path' as root. Logging might fail." >&2
         return 1
     fi
-    log_info "Log file '$file_path' created."
+    log_debug "Log file '$file_path' created."
 
     # 尝试设置文件权限
     if ! chmod 644 "$file_path"; then
@@ -704,8 +704,8 @@ initialize_logging_system() {
     local info_level_padded=$(printf "%-${_LOG_LEVEL_PAD_WIDTH}s" "INFO")
     local debug_level_padded=$(printf "%-${_LOG_LEVEL_PAD_WIDTH}s" "DEBUG")
 
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] ------ 开始为 '$script_name' 初始化日志系统 ------" >&2
-    echo -e "${COLOR_BLUE}DEBUG:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 1/4】: 验证日志环境参数 (BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME)..." >&2
+    log_info "[environment_setup] ----------- 开始为 '$script_name' 初始化日志系统 -----------" >&2
+    log_debug "[environment_setup]【Step 1/4】: 验证日志环境参数 (BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME)..." >&2
 
     # 1. 验证必要全局变量是否已设置 - 调用辅助函数 _validate_logging_prerequisites
     # 这些变量应已由 environment_setup.sh 在调用此函数前设置并导出。
@@ -713,28 +713,27 @@ initialize_logging_system() {
         # _validate_logging_prerequisites 内部会 echo 错误并 exit。
         return 1
     fi
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 1/4】: 日志环境参数验证成功." >&2
+    log_info "[environment_setup]【Step 1/4】: 日志环境参数验证成功." >&2
 
     # 2. 定义当前运行的日志日期目录 (在此函数内部定义并导出) - 调用辅助函数 _get_current_day_log_dir
     # 格式为 YYYY-MM-DD，用于组织日志文件。
-    echo -e "${COLOR_BLUE}DEBUG:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 2/4】: 创建当前日志日期目录 (YYYY-MM-DD)..." >&2
+    log_debug "[environment_setup]【Step 2/4】: 创建当前日志日期目录 (YYYY-MM-DD)..." >&2
     if ! _get_current_day_log_dir; then
         echo "${COLOR_RED}Fatal Error:${COLOR_RESET} [utils.initialize_logging_system] Could not determine current day's log directory. Logging cannot proceed." >&2
         return 1
     fi
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 2/4】: 成功创建日志目录: '$CURRENT_DAY_LOG_DIR'." >&2
+    log_info "[environment_setup]【Step 2/4】: 成功创建日志目录: '$CURRENT_DAY_LOG_DIR'." >&2
 
     # 3. 确保日志根目录（包括日期目录）存在并对 ORIGINAL_USER 有写入权限
-    echo -e "${COLOR_BLUE}DEBUG:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] Ensuring log directory '$CURRENT_DAY_LOG_DIR' is prepared for user '$ORIGINAL_USER'..." >&2
-    echo -e "${COLOR_BLUE}DEBUG:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 3/4】: 检查用户： '$ORIGINAL_USER' 对目录： '$CURRENT_DAY_LOG_DIR'  是否有写权限..." >&2
+    log_debug "[environment_setup] 【Step 3/4】: 检查用户： '$ORIGINAL_USER' 对目录： '$CURRENT_DAY_LOG_DIR'  是否有写权限..." >&2
     if ! _ensure_log_dir_user_owned "$CURRENT_DAY_LOG_DIR" "$ORIGINAL_USER"; then
         echo "${COLOR_RED}Fatal:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] Could not prepare log directory '$CURRENT_DAY_LOG_DIR' for '$ORIGINAL_USER'. Logging will not function correctly." >&2
         return 1
     fi
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 3/4】: 确定了目录: '$CURRENT_DAY_LOG_DIR' 已经存在，并且用户： '$ORIGINAL_USER' 拥有该目录的读写权限." >&2
+    log_info "[environment_setup]【Step 3/4】: 确定用户：'$ORIGINAL_USER'对目录:'$CURRENT_DAY_LOG_DIR'拥有读写权限." >&2
 
     # 4. 为当前脚本创建具体的日志文件 - 调用辅助函数 _create_and_secure_log_file
-    echo -e "${COLOR_BLUE}DEBUG:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 4/4】: 为当前脚本： '$script_name' 创建具体的日志文件..." >&2
+    log_debug "[environment_setup]【Step 4/4】: 为当前脚本： '$script_name' 创建具体的日志文件..." >&2
     # 构建当前脚本的日志文件路径，包含脚本名称和精确到秒的时间戳。
     CURRENT_SCRIPT_LOG_FILE="$CURRENT_DAY_LOG_DIR/${script_name%.*}-$(date +%Y%m%d_%H%M%S).log"
     export CURRENT_SCRIPT_LOG_FILE
@@ -742,14 +741,15 @@ initialize_logging_system() {
     # 注意：这里使用 echo 输出到 stderr，而不是 log_info，
     # 因为 log_info 内部依赖 CURRENT_SCRIPT_LOG_FILE 已经完全设置好，
     # 而这个函数正在设置它，避免死循环。
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] Initializing logging for '$script_name'. Log file will be: '$CURRENT_SCRIPT_LOG_FILE'" >&2
+    # echo -e "[$(date +"%Y-%m-%d %H:%M:%S")] ${COLOR_GREEN}INFO:${COLOR_RESET} [environment_setup] Initializing logging for '$script_name'. Log file will be: '$CURRENT_SCRIPT_LOG_FILE'" >&2
     
     if ! _create_and_secure_log_file "$CURRENT_SCRIPT_LOG_FILE" "$ORIGINAL_USER"; then
-        echo "${COLOR_RED}Fatal:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] Failed to create and secure log file '$CURRENT_SCRIPT_LOG_FILE'. Logging might fail." >&2
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${COLOR_RED}Fatal:${COLOR_RESET} [environment_setup] Failed to create and secure log file '$CURRENT_SCRIPT_LOG_FILE'. Logging might fail." >&2
         return 1
     fi
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] 【Step 4/4】: 成功创建日志文件: '$CURRENT_SCRIPT_LOG_FILE'." >&2
-    echo -e "${COLOR_GREEN}INFO:${COLOR_RESET} [$(date +"%Y-%m-%d %H:%M:%S")] [environment_setup] ------ 成功为 '$script_name' 初始化日志系统，日志文件为： '$CURRENT_SCRIPT_LOG_FILE'. ------ " >&2
+    log_info "[environment_setup]【Step 4/4】: 成功创建日志文件: '$CURRENT_SCRIPT_LOG_FILE'." >&2
+    log_info "[environment_setup] ----------- 成功为 '$script_name' 初始化日志系统. ----------- " >&2
+    #echo -e "[$(date +"%Y-%m-%d %H:%M:%S")] ${COLOR_GREEN}INFO:${COLOR_RESET} [environment_setup] ------ 日志文件为： '$CURRENT_SCRIPT_LOG_FILE'. ------ " >&2
     return 0
 }
 
