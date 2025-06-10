@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/main_config.sh
-# 版本: 1.0.8 (新增 "timestamp_level" 消息格式模式)
+# 版本: 1.0.9 (支持日志模式数字代号输入)
 # 日期: 2025-06-08
 # 描述: 整个项目的主配置文件。
 #       此文件作为所有项目级别全局变量的中心声明清单，并为可配置项提供默认值。
@@ -29,8 +29,10 @@
 # v1.0.7 - 2025-06-08 - 新增 DEFAULT_MESSAGE_FORMAT_MODE 配置项，
 #                        用于控制终端日志消息的默认前缀格式（时间戳、级别、调用者）。
 #                        这为未来的消息格式定制（如简化“SUCCESS”消息）提供了基础。
-# v1.0.8 - 2025-06-08 - **在 DEFAULT_MESSAGE_FORMAT_MODE 中新增 "timestamp_level" 模式，**
-#                        **允许只显示时间戳和日志级别，不显示调用者信息。**
+# v1.0.8 - 2025-06-08 - 在 DEFAULT_MESSAGE_FORMAT_MODE 中新增 "timestamp_level" 模式，
+#                        允许只显示时间戳和日志级别，不显示调用者信息。
+# v1.0.9 - 2025-06-08 - **更新 DISPLAY_MODE 和 DEFAULT_MESSAGE_FORMAT_MODE 的可选值说明，**
+#                        **使其支持使用数字代号 (1, 2, 3...) 来替代完整的字符串名称，方便用户输入。**
 # ==============================================================================
 
 # 严格模式 (仅作为良好实践保留，实际加载此文件时，环境已由父脚本或 environment_setup.sh 设置)
@@ -79,21 +81,21 @@ export ENABLE_COLORS="true"
 
 # 定义日志输出的最低级别（仅影响终端显示，不影响文件记录）。
 # 可选值: "DEBUG", "INFO", "NOTICE", "SUCCESS", "WARN", "ERROR", "FATAL", "SUMMARY"
-export CURRENT_LOG_LEVEL="INFO" 
+export CURRENT_LOG_LEVEL="DEBUG" 
 
 # 定义终端日志的默认显示模式。
 # 可选值:
-#   "no_color":       终端输出完全不带色彩。
-#   "prefix_only_color": 日志级别前缀（如 [INFO]）带颜色，消息内容不带颜色。
-#   "all_color":      日志级别前缀和消息内容都带颜色（消息内容使用其默认颜色，或由函数调用时指定）。
-export DISPLAY_MODE="prefix_only_color"
+#   "no_color" (1):        终端输出完全不带色彩。
+#   "prefix_only_color" (2): 日志级别前缀（如 [INFO]）带颜色，消息内容不带颜色。
+#   "all_color" (3):       日志级别前缀和消息内容都带颜色（消息内容使用其默认颜色，或由函数调用时指定）。
+export DISPLAY_MODE="all_color"
 
 # 定义终端日志消息的默认格式模式（时间戳、级别、调用者信息的显示）。
 # 可选值:
-#   "full":            标准格式，显示 [时间戳] [级别] [调用者] 消息。
-#   "level_only":      简化格式，只显示 [级别] 消息 (例如用于 SUCCESS)。
-#   "no_prefix":       最简格式，只显示 消息 (无任何前缀)。
-#   "timestamp_level": 显示 [时间戳] [级别] 消息 (无调用者)。
+#   "full" (1):            标准格式，显示 [时间戳] [级别] [调用者] 消息。
+#   "level_only" (2):      简化格式，只显示 [级别] 消息 (例如用于 SUCCESS)。
+#   "no_prefix" (3):       最简格式，只显示 消息 (无任何前缀)。
+#   "timestamp_level" (4): 显示 [时间戳] [级别] 消息 (无调用者)。
 export DEFAULT_MESSAGE_FORMAT_MODE="timestamp_level"
 
 
