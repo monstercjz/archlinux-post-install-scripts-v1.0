@@ -85,14 +85,14 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 基础路径键: BASE_PATH_MAP 中定义的键 (例如 "core_modules", "extra_modules")
 declare -A SYSTEM_BASE_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
-    [1]="系统镜像配置 (Mirrors, Network, System Time)|menu:core_modules:01_system_base/01_configure_mirrors.sh"
-    [2]="三方镜像配置 (Shell, Dotfiles, Editor)|menu:core_modules:01_system_base/00_user_environment_menu.sh"
-    [3]="网络信息配置(AUR Helper, Pacman Hooks)|menu:core_modules:01_system_base/03_setup_network.sh"
-    [4]="常用软件安装 (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
-    [5]="Perform Cleanup and Finish|action:core_modules:00_cleanup_and_finish.sh"
+    [1]="系统镜像配置 (镜像源修改为国内)|menu:core_modules:01_system_base/01_configure_mirrors.sh"
+    [2]="三方镜像配置 (添加中文社区软件源及秘钥)|menu:core_modules:01_system_base/00_user_environment_menu.sh"
+    [3]="网络信息配置(修改网络信息)|menu:core_modules:01_system_base/03_setup_network.sh"
+    [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
+    [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
-    [6]="Run Extra Tools (from another module dir)|action:extra_modules:my_extra_tool.sh"
+    [6]="XXXX(from another module dir)|action:extra_modules:my_extra_tool.sh"
     # 请确保 'modules-another/my_extra_tool.sh' 文件存在，以便此选项能正常工作
 )
 
@@ -103,7 +103,7 @@ declare -A SYSTEM_BASE_MENU_ENTRIES=(
 # main()
 # 功能: 脚本的主函数，负责主菜单的循环显示和处理。
 main() {
-    log_info "Starting Main Menu loop."
+    log_info "Starting System Base Config Menu loop."
 
     # 导入通用菜单框架。
     # 确保在调用 _run_generic_menu 之前，menu_framework.sh 已被 source。
@@ -113,14 +113,14 @@ main() {
     # _run_generic_menu 函数会处理菜单的显示、用户输入和导航逻辑。
     _run_generic_menu \
         "SYSTEM_BASE_MENU_ENTRIES" \
-        "Arch Linux Post-Install Main Menu" \
+        "系统环境配置（MENU NO.1）" \
         "Exit Setup" \
         "${COLOR_PURPLE}" \
-        "${COLOR_BOLD}${COLOR_BRIGHT_BLACK}"
+        "${COLOR_BLUE_BG}${COLOR_BOLD}${COLOR_WHITE}"
     
     # _run_generic_menu 返回后，表示用户选择了退出或发生了框架级别的错误。
     # 根据 _run_generic_menu 的返回状态（0表示正常退出菜单循环），决定后续操作。
-    log_info "Main Menu loop ended."
+    log_info "System Base Config Menu loop ended."
 }
 
 # exit_script()
@@ -128,7 +128,7 @@ main() {
 # 参数: $1 (exit_code) - 退出码 (默认为 0)。
 exit_script() {
     local exit_code=${1:-0}
-    log_info "Exiting Arch Linux Post-Installation Main Menu script."
+    log_info "Exiting System Base Config Menu script."
     exit "$exit_code"
 }
 

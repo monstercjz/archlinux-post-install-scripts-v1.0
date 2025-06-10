@@ -83,10 +83,10 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 格式为: [菜单选项数字]="菜单描述文本|类型:基础路径键:相对路径/到/脚本.sh"
 # 类型可以是: "menu:" (子菜单) 或 "action:" (功能脚本)
 # 基础路径键: BASE_PATH_MAP 中定义的键 (例如 "core_modules", "extra_modules")
-declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
+declare -A BASE_SOFTWARE_INSTALLATION_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
-    [1]="终端配置 (美化终端)|menu:core_modules:02_user_environment/01_configure_shell.sh"
-    [2]="xxxxx (添加中文社区软件源及秘钥)|menu:core_modules:02_user_environment/02_config_environment_menu.sh"
+    [1]="AUR 助手-yay (美化终端)|menu:core_modules:02_user_environment/01_configure_shell.sh"
+    [2]="AUR 助手-paru (添加中文社区软件源及秘钥)|menu:core_modules:02_user_environment/02_config_environment_menu.sh"
     [3]="xxxxxx(修改网络信息)|menu:core_modules:02_user_environment/03_setup_network.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
@@ -103,7 +103,7 @@ declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
 # main()
 # 功能: 脚本的主函数，负责主菜单的循环显示和处理。
 main() {
-    log_info "Starting User Environment Menu loop."
+    log_info "Starting Base Software Installation Menu loop."
 
     # 导入通用菜单框架。
     # 确保在调用 _run_generic_menu 之前，menu_framework.sh 已被 source。
@@ -112,15 +112,15 @@ main() {
     # 调用通用菜单处理函数，传入菜单数据、标题、退出文本和颜色。
     # _run_generic_menu 函数会处理菜单的显示、用户输入和导航逻辑。
     _run_generic_menu \
-        "USER_ENVIRONMENT_MENU_ENTRIES" \
-        "用户环境配置（MENU NO.2）" \
+        "BASE_SOFTWARE_INSTALLATION_MENU_ENTRIES" \
+        "基础软件安装（MENU NO.3）" \
         "Exit Setup" \
         "${COLOR_PURPLE}" \
         "${COLOR_BLUE_BG}${COLOR_BOLD}${COLOR_WHITE}"
     
     # _run_generic_menu 返回后，表示用户选择了退出或发生了框架级别的错误。
     # 根据 _run_generic_menu 的返回状态（0表示正常退出菜单循环），决定后续操作。
-    log_info "System User Environment Menu loop ended."
+    log_info "Starting Base Software Installation Menu loop ended."
 }
 
 # exit_script()
@@ -128,7 +128,7 @@ main() {
 # 参数: $1 (exit_code) - 退出码 (默认为 0)。
 exit_script() {
     local exit_code=${1:-0}
-    log_info "Exiting User Environment Menu script."
+    log_info "Exiting Starting Base Software Installation Menu script."
     exit "$exit_code"
 }
 
