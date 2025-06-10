@@ -111,7 +111,7 @@ main() {
         "Arch Linux Post-Install Main Menu" \
         "Exit Setup" \
         "${COLOR_PURPLE}" \
-        "${COLOR_BOLD}${COLOR_WHITE}"
+        "${COLOR_BOLD}${COLOR_BRIGHT_BLACK}"
     
     # _run_generic_menu 返回后，表示用户选择了退出或发生了框架级别的错误。
     # 根据 _run_generic_menu 的返回状态（0表示正常退出菜单循环），决定后续操作。
