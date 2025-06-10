@@ -157,10 +157,10 @@ source "$_utils_path" # <--- utils.sh 及其函数和颜色变量现在可用
 
 # 此时 log_info/log_debug 等函数和 COLOR_X 变量都已可用。
 echo -e "[$(date +"%Y-%m-%d %H:%M:%S")] \033[0;34mDEBUG:\033[0m [environment_setup]【Step 6/7】 判断脚本执行的真实用户信息并展示各种必须的环境变量值..." >&2
-#log_notice "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, DEBUG_MODE: $DEBUG_MODE."
-log_info "utils.sh sourced. Core utilities and logging functions are now available."
+log_debug "main_config.sh loaded. LOG_ROOT_RELATIVE_TO_BASE: $LOG_ROOT_RELATIVE_TO_BASE, CURRENT_LOG_LEVEL: $CURRENT_LOG_LEVEL."
+log_debug "utils.sh sourced. Core utilities and logging functions are now available."
 log_debug "Root privileges confirmed." 
-log_info "BASE_DIR confirmed: '$BASE_DIR'."
+log_debug "BASE_DIR confirmed: '$BASE_DIR'."
 log_debug "Core directory variables defined: CONFIG_DIR=$CONFIG_DIR, LIB_DIR=$LIB_DIR, MODULES_DIR=$MODULES_DIR, ASSETS_DIR=$ASSETS_DIR, ANOTHER_MODULES_DIR=$ANOTHER_MODULES_DIR"
 log_debug "LOG_ROOT calculated: '$LOG_ROOT'." # 调试信息移到 utils.sh 加载后
 log_debug "BASE_PATH_MAP populated: $(declare -p BASE_PATH_MAP)" # 打印关联数组的完整内容，方便调试
@@ -169,11 +169,11 @@ log_debug "BASE_PATH_MAP populated: $(declare -p BASE_PATH_MAP)" # 打印关联�
 # ORIGINAL_USER 和 ORIGINAL_HOME 已在 main_config.sh 中声明。
 # _get_original_user_and_home 函数内部会处理赋值和 export。
 _get_original_user_and_home 
-log_info "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
+log_notice "Original user detected: $ORIGINAL_USER (Home: $ORIGINAL_HOME)."
 
 # 赋值 DOTFILES_LOCAL_PATH (依赖 ORIGINAL_HOME)。DOTFILES_LOCAL_PATH 已在 main_config.sh 中声明。
 DOTFILES_LOCAL_PATH="${ORIGINAL_HOME}/.dotfiles"
-log_info "Dotfiles local path set to: '$DOTFILES_LOCAL_PATH'."
+log_debug "Dotfiles local path set to: '$DOTFILES_LOCAL_PATH'."
 
 
 # ==============================================================================
@@ -191,7 +191,7 @@ if ! initialize_logging_system "$_caller_script_path"; then
     echo "" 
     exit 1
 fi
-log_info "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'." 
+log_notice "Logging system fully initialized. Current script log file: '$CURRENT_SCRIPT_LOG_FILE'." 
 
 
 # ==============================================================================
@@ -205,16 +205,18 @@ if [ -z "${_SETUP_INITIAL_CONFIRMED+set}" ]; then
     display_header_section "Environment Setup Summary" "box" 80 "${COLOR_CYAN}" "${COLOR_BOLD}${COLOR_YELLOW}"
 
     log_summary "--------------------------------------------------"
-    log_summary "Project: ${PROJECT_NAME} ${PROJECT_VERSION}"
-    log_summary "Author: ${PROJECT_AUTHOR}"
-    log_summary "Description: ${PROJECT_DESCRIPTION}"
+    log_summary "项目名称: ${PROJECT_NAME} ${PROJECT_VERSION}"
+    log_summary "作者: ${PROJECT_AUTHOR}"
+    log_summary "描述: ${PROJECT_DESCRIPTION}"
     log_summary "--------------------------------------------------"
-    log_summary "Running as: root (Original User: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
-    log_summary "Project Root: ${BASE_DIR}"
-    log_summary "Log Directory: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
-    log_summary "Current Log File: ${CURRENT_SCRIPT_LOG_FILE}"
-    #log_summary "Debug Mode: $(if [[ "${DEBUG_MODE}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
-    #log_summary "Colors: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
+    log_summary "Running as: root (真实用户: ${ORIGINAL_USER}, Home: ${ORIGINAL_HOME})"
+    log_summary "运行脚本根目录: ${BASE_DIR}"
+    log_summary "日志路径: ${LOG_ROOT}" # 显示 LOG_ROOT 而非 CURRENT_DAY_LOG_DIR
+    log_summary "日志文件: ${CURRENT_SCRIPT_LOG_FILE}"
+    log_summary "显示日志最低级别: ${CURRENT_LOG_LEVEL}"
+    log_summary "终端带颜色输出: $(if [[ "${ENABLE_COLORS}" == "true" ]]; then echo "Enabled"; else echo "Disabled"; fi)"
+    log_summary "终端颜色模式: ${DISPLAY_MODE}"
+    log_summary "终端消息模式: ${DEFAULT_MESSAGE_FORMAT_MODE}"
     log_summary "--------------------------------------------------"
 
     log_info "Environment setup completed successfully. Please review the above details and the log file."

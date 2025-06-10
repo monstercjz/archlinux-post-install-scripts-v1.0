@@ -760,6 +760,8 @@ initialize_logging_system() {
 # 返回: 0 (所有变量已设置) 或 1 (缺失变量，直接退出)。
 _validate_logging_prerequisites() {
     if [ -z "${BASE_DIR+set}" ] || [ -z "${LOG_ROOT+set}" ] || \
+       [ -z "${DISPLAY_MODE+set}" ] || [ -z "${DEFAULT_MESSAGE_FORMAT_MODE+set}" ] || \
+       [ -z "${ENABLE_COLORS+set}" ] || [ -z "${CURRENT_LOG_LEVEL+set}" ] || \
        [ -z "${ORIGINAL_USER+set}" ] || [ -z "${ORIGINAL_HOME+set}" ]; then
         # 此时 log_error 无法完全记录到文件，直接 echo 到 stderr。
         echo "${COLOR_RED}Fatal Error:${COLOR_RESET} [utils.initialize_logging_system] Logging environment (BASE_DIR, LOG_ROOT, ORIGINAL_USER) not fully set. Exiting." >&2
