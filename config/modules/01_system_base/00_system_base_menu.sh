@@ -86,9 +86,9 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 declare -A SYSTEM_BASE_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="系统镜像配置 (镜像源修改为国内)|action:core_modules:01_system_base/01_configure_mirrors.sh"
-    [2]="三方镜像配置 (添加中文社区软件源及秘钥)|menu:core_modules:01_system_base/02_add_archlinuxcn_repo.sh"
-    [3]="网络信息配置(修改网络信息)|menu:core_modules:01_system_base/03_setup_network.sh"
-    [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
+    [2]="三方镜像配置 (添加中文社区软件源及秘钥)|action:core_modules:01_system_base/02_add_archlinuxcn_repo.sh"
+    [3]="网络信息配置(修改网络信息)|action:core_modules:01_system_base/03_setup_network.sh"
+    [4]="PACMAN HOOKS (自动备份安装软件列表)|action:core_modules:01_system_base/04_setup_pacman_hooks.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
