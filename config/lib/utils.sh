@@ -930,6 +930,66 @@ _cleanup_old_backups() {
     
     return 0
 }
+# create_backup_and_cleanup()
+# @description: 统一的备份创建和清理框架函数。
+# @functionality:
+#   - 为指定文件创建带时间戳的备份。
+#   - 将备份存储在基于 GLOBAL_BACKUP_ROOT 的、模块化的子目录中。
+#   - 自动清理指定子目录下的旧备份，只保留最新的N个。
+# @param: $1 (string) original_file_path - 要备份的原始文件的绝对路径。
+# @param: $2 (string) backup_subdirectory - 用于存放此文件备份的子目录名称 (例如 "zshrc", "pacman_conf")。
+# @param: $3 (integer, optional) max_backups - 可选，覆盖全局默认的最大备份数量。
+# @returns: 0 on success (backup created or not needed), 1 on failure.
+# @depends: GLOBAL_BACKUP_ROOT (from main_config.sh), DEFAULT_MAX_BACKUPS (from main_config.sh),
+#           _create_directory_if_not_exists(), _cleanup_old_backups(), log_*
+create_backup_and_cleanup() {
+    local original_file_path="$1"
+    local backup_subdirectory="$2"
+    local max_backups="${3:-${DEFAULT_MAX_BACKUPS:-5}}" # 使用传入值，否则用全局默认，再否则用硬编码5
+
+    if [ -z "$original_file_path" ] || [ -z "$backup_subdirectory" ]; then
+        log_error "create_backup_and_cleanup: Missing required arguments (original_file_path, backup_subdirectory)."
+        return 1
+    fi
+
+    # 检查原始文件是否存在
+    if [ ! -f "$original_file_path" ]; then
+        log_info "Original file '$original_file_path' not found. No backup needed."
+        return 0
+    fi
+    
+    # 构建备份目录的完整路径
+    local backup_dir="${GLOBAL_BACKUP_ROOT}/${backup_subdirectory}"
+    log_info "Attempting to back up '$original_file_path' to directory '$backup_dir'..."
+
+    # 创建备份目录 (如果不存在)
+    if ! _create_directory_if_not_exists "$backup_dir"; then
+        log_error "Failed to create backup directory: '$backup_dir'. Cannot proceed."
+        return 1
+    fi
+
+    # 构建备份文件名
+    local original_filename; original_filename=$(basename "$original_file_path")
+    local timestamp; timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_file_path="${backup_dir}/${original_filename}.bak.${timestamp}"
+
+    # 执行备份
+    # 注意：这个函数不知道是否需要 sudo 或 run_as_user，它只负责文件路径逻辑。
+    # 调用者需要确保有权限读取原始文件。
+    if cp -p "$original_file_path" "$backup_file_path"; then
+        log_success "File successfully backed up to: '$backup_file_path'."
+        
+        # 备份成功后，立即清理旧备份
+        # 文件名模式基于原始文件名
+        log_info "Cleaning up old backups in '$backup_dir'..."
+        _cleanup_old_backups "$backup_dir" "${original_filename}.bak.*" "$max_backups"
+        
+        return 0
+    else
+        log_error "Failed to create backup file: '$backup_file_path'. Check permissions."
+        return 1
+    fi
+}
 
 # --- 对外暴露的日志级别封装函数 ---
 # 这些函数是外部脚本与日志系统交互的主要接口，调用 _log_message_core 进行实际处理。

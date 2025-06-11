@@ -104,8 +104,9 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 
 # @var string PACMAN_CONF Pacman 配置文件路径，从 main_config.sh 获取。
 PACMAN_CONF="${PACMAN_CONF_PATH}"
+PACMANCONF="pacnmanconf"
 # @var string PACMAN_CONF_BACKUP_DIR 备份目录，在 pacman.conf 文件所在目录创建一个 backups 子目录。
-PACMAN_CONF_BACKUP_DIR="$(dirname "$PACMAN_CONF")/backups"
+PACMAN_CONF_BACKUP_DIR="${GLOBAL_BACKUP_ROOT}/${PACMANCONF}"
 # @var int MAX_BACKUP_FILES_PACMAN_CONF 最大保留的 pacman.conf 备份文件数量，从 main_config.sh 获取。
 MAX_BACKUP_FILES_PACMAN_CONF="${MAX_BACKUP_FILES_PACMAN_CONF:-5}" # 提供默认值以防万一未在 main_config.sh 中定义
 
@@ -145,29 +146,38 @@ SELECTED_ARCHLINUXCN_MIRROR="$MIRROR_USTC"
 # @depends: _create_directory_if_not_exists() (from utils.sh), cp, date (system commands),
 #           _cleanup_old_backups() (from utils.sh), log_info(), log_success(), log_warn(), log_error() (from utils.sh)
 _backup_pacman_conf() {
-    log_info "Attempting to back up current Pacman configuration file '$PACMAN_CONF'..."
-    if [ -f "$PACMAN_CONF" ]; then
-        if ! _create_directory_if_not_exists "$PACMAN_CONF_BACKUP_DIR"; then
-            log_error "Failed to create backup directory: '$PACMAN_CONF_BACKUP_DIR'. Cannot proceed with pacman.conf backup."
-            return 1
-        fi
-        local timestamp=$(date +%Y%m%d_%H%M%S)
-        local backup_file="${PACMAN_CONF_BACKUP_DIR}/pacman.conf.bak.${timestamp}"
-        if cp -p "$PACMAN_CONF" "$backup_file"; then
-            log_success "Current '$PACMAN_CONF' successfully backed up to: '$backup_file'."
+    # log_info "Attempting to back up current Pacman configuration file '$PACMAN_CONF'..."
+    # if [ -f "$PACMAN_CONF" ]; then
+    #     if ! _create_directory_if_not_exists "$PACMAN_CONF_BACKUP_DIR"; then
+    #         log_error "Failed to create backup directory: '$PACMAN_CONF_BACKUP_DIR'. Cannot proceed with pacman.conf backup."
+    #         return 1
+    #     fi
+    #     local timestamp=$(date +%Y%m%d_%H%M%S)
+    #     local backup_file="${PACMAN_CONF_BACKUP_DIR}/pacman.conf.bak.${timestamp}"
+    #     if cp -p "$PACMAN_CONF" "$backup_file"; then
+    #         log_success "Current '$PACMAN_CONF' successfully backed up to: '$backup_file'."
             
-            # 在成功备份后，清理旧备份文件
-            _cleanup_old_backups "$PACMAN_CONF_BACKUP_DIR" "pacman.conf.bak.*" "$MAX_BACKUP_FILES_PACMAN_CONF" || \
-                log_warn "Failed to cleanup old pacman.conf backup files. This may lead to excessive backup files."
+    #         # 在成功备份后，清理旧备份文件
+    #         _cleanup_old_backups "$PACMAN_CONF_BACKUP_DIR" "pacman.conf.bak.*" "$MAX_BACKUP_FILES_PACMAN_CONF" || \
+    #             log_warn "Failed to cleanup old pacman.conf backup files. This may lead to excessive backup files."
             
-            return 0
-        else
-            log_error "Failed to back up '$PACMAN_CONF' to '$backup_file'. This might be a permissions issue, disk full, or an invalid path."
-            return 1
-        fi
+    #         return 0
+    #     else
+    #         log_error "Failed to back up '$PACMAN_CONF' to '$backup_file'. This might be a permissions issue, disk full, or an invalid path."
+    #         return 1
+    #     fi
+    # else
+    #     log_warn "Pacman configuration file '$PACMAN_CONF' not found. No backup created as there's nothing to backup."
+    #     return 0 # 没有文件可备份，但这不被视为错误
+    # fi
+    if create_backup_and_cleanup "$PACMAN_CONF" "$PACMANCONF"; then
+        # 备份成功，函数可以成功返回
+        return 0
     else
-        log_warn "Pacman configuration file '$PACMAN_CONF' not found. No backup created as there's nothing to backup."
-        return 0 # 没有文件可备份，但这不被视为错误
+        # 备份失败，create_backup_and_cleanup 内部已经记录了详细错误。
+        # 此处只需记录一个概要错误，并向上层返回失败状态。
+        log_error "The backup process for repo failed. See previous logs for details."
+        return 1
     fi
 }
 

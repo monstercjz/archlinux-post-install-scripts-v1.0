@@ -204,9 +204,14 @@ _configure_from_template() {
     fi
 
     log_info "备份当前的 .zshrc 文件..."
-    local backup_file="${ZSHRC_FILE}.bak_before_template_overwrite_$(date +%Y%m%d_%H%M%S)"
-    run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
-    log_success "已备份到: $backup_file"
+    # local backup_file="${ZSHRC_FILE}.bak_before_template_overwrite_$(date +%Y%m%d_%H%M%S)"
+    # run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
+    # log_success "已备份到: $backup_file"
+    # if ! run_as_user "source '${LIB_DIR}/utils.sh' && create_backup_and_cleanup '$ZSHRC_FILE' 'zshrc_template_overwrite'"; then
+    if ! create_backup_and_cleanup "$ZSHRC_FILE" "zshrc_template_overwrite"; then
+         log_error "Backup of .zshrc before template overwrite failed. Aborting."
+         return 1
+    fi
 
     log_info "正在从 '$ZSHRC_TEMPLATE_PATH' 复制配置..."
     if cp "$ZSHRC_TEMPLATE_PATH" "$ZSHRC_FILE"; then
@@ -234,8 +239,16 @@ _run_configuration() {
         log_info "$ZSHRC_FILE 不存在，将从模板创建。"
         run_as_user "cp '${ORIGINAL_HOME}/.oh-my-zsh/templates/zshrc.zsh-template' '$ZSHRC_FILE'" || { log_error "创建 .zshrc 失败！"; return 1; }
     fi
-    log_info "备份当前 .zshrc 文件..."; local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"; run_as_user "cp '$ZSHRC_FILE' '$backup_file'"; log_success "已备份到: $backup_file"
-
+    # log_info "备份当前 .zshrc 文件..."; local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"; run_as_user "cp '$ZSHRC_FILE' '$backup_file'"; log_success "已备份到: $backup_file"
+    # *** 新的、简洁的备份调用 ***
+    # 我们需要在普通用户有权限读取 .zshrc 的情况下调用备份
+    # 所以我们使用 run_as_user 来执行 create_backup_and_cleanup
+    # create_backup_and_cleanup 内部的 cp 将由普通用户执行
+    # if ! run_as_user "source '${LIB_DIR}/utils.sh' && create_backup_and_cleanup '$ZSHRC_FILE' 'zshrc'"; then
+    if ! create_backup_and_cleanup "$ZSHRC_FILE" "zshrc"; then
+         log_error "Backup of .zshrc failed. Aborting configuration."
+         return 1
+    fi
     # --- 步骤 2: 创建一个临时工作副本 ---
     local temp_zshrc; temp_zshrc=$(run_as_user "mktemp")
     if [ -z "$temp_zshrc" ]; then log_error "无法为 .zshrc 创建临时工作文件！"; return 1; fi

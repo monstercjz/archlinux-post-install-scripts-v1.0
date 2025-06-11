@@ -104,6 +104,10 @@ export DEFAULT_MESSAGE_FORMAT_MODE="timestamp_level"
 # 定义 Pacman 配置文件和镜像列表的备份文件最大保留数量
 export MAX_BACKUP_FILES_PACMAN_CONF=5
 export MAX_BACKUP_FILES_MIRRORLIST=5
+# *** 新增：统一备份配置框架 ***
+export GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE="backups" # 备份文件存放的根目录，相对于项目根目录 (BASE_DIR) 的路径
+export GLOBAL_BACKUP_ROOT  # 统一的备份文件根目录的绝对上层路径 (由 environment_setup.sh 动态计算并赋值)
+export DEFAULT_MAX_BACKUPS=5                 # 默认的最大备份数量
 
 
 # --- 用户环境相关默认设置 (可配置的默认值) ---

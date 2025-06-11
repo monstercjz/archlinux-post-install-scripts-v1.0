@@ -83,8 +83,10 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 
 # @var string MIRRORLIST_PATH Pacman 镜像列表文件路径，从 main_config.sh 获取。
 MIRRORLIST_PATH="${PACMAN_MIRRORLIST_PATH}"
+BACKUP_DIR="mirrorlist"
 # @var string MIRRORLIST_BACKUP_DIR 备份目录，在 mirrorlist 文件所在目录创建一个 backups 子目录。
-MIRRORLIST_BACKUP_DIR="$(dirname "$MIRRORLIST_PATH")/backups"
+# MIRRORLIST_BACKUP_DIR="$(dirname "$MIRRORLIST_PATH")/backups"
+MIRRORLIST_BACKUP_DIR="${GLOBAL_BACKUP_ROOT}/${BACKUP_DIR}"
 # @var int MAX_BACKUP_FILES_MIRRORLIST 最大保留的 mirrorlist 备份文件数量，从 main_config.sh 获取。
 MAX_BACKUP_FILES_MIRRORLIST="${MAX_BACKUP_FILES_MIRRORLIST:-5}" # 提供默认值以防万一未在 main_config.sh 中定义
 
@@ -104,30 +106,44 @@ MAX_BACKUP_FILES_MIRRORLIST="${MAX_BACKUP_FILES_MIRRORLIST:-5}" # 提供默认�
 # @depends: _create_directory_if_not_exists() (from utils.sh), cp, date (system commands),
 #           _cleanup_old_backups() (from utils.sh), log_info(), log_success(), log_warn(), log_error() (from utils.sh)
 _backup_mirrorlist() {
-    log_info "Attempting to back up current Pacman mirrorlist from '$MIRRORLIST_PATH'..."
-    if [ -f "$MIRRORLIST_PATH" ]; then
-        if ! _create_directory_if_not_exists "$MIRRORLIST_BACKUP_DIR"; then
-            log_error "Failed to create backup directory: '$MIRRORLIST_BACKUP_DIR'. Cannot proceed with mirrorlist backup."
-            return 1
-        fi
-        local timestamp=$(date +%Y%m%d_%H%M%S)
-        local backup_file="${MIRRORLIST_BACKUP_DIR}/mirrorlist.bak.${timestamp}"
-        if cp -p "$MIRRORLIST_PATH" "$backup_file"; then
-            log_success "Current mirrorlist successfully backed up to: '$backup_file'."
+    # log_info "Attempting to back up current Pacman mirrorlist from '$MIRRORLIST_PATH'..."
+    # if [ -f "$MIRRORLIST_PATH" ]; then
+    #     if ! _create_directory_if_not_exists "$MIRRORLIST_BACKUP_DIR"; then
+    #         log_error "Failed to create backup directory: '$MIRRORLIST_BACKUP_DIR'. Cannot proceed with mirrorlist backup."
+    #         return 1
+    #     fi
+    #     local timestamp=$(date +%Y%m%d_%H%M%S)
+    #     local backup_file="${MIRRORLIST_BACKUP_DIR}/mirrorlist.bak.${timestamp}"
+    #     if cp -p "$MIRRORLIST_PATH" "$backup_file"; then
+    #         log_success "Current mirrorlist successfully backed up to: '$backup_file'."
             
-            # 在成功备份后，清理旧备份文件
-            _cleanup_old_backups "$MIRRORLIST_BACKUP_DIR" "mirrorlist.bak.*" "$MAX_BACKUP_FILES_MIRRORLIST" || \
-                log_warn "Failed to cleanup old mirrorlist backup files. This may lead to excessive backup files."
+    #         # 在成功备份后，清理旧备份文件
+    #         _cleanup_old_backups "$MIRRORLIST_BACKUP_DIR" "mirrorlist.bak.*" "$MAX_BACKUP_FILES_MIRRORLIST" || \
+    #             log_warn "Failed to cleanup old mirrorlist backup files. This may lead to excessive backup files."
             
-            return 0
-        else
-            log_error "Failed to back up '$MIRRORLIST_PATH' to '$backup_file'. This might be a permissions issue, disk full, or an invalid path."
-            return 1
-        fi
+    #         return 0
+    #     else
+    #         log_error "Failed to back up '$MIRRORLIST_PATH' to '$backup_file'. This might be a permissions issue, disk full, or an invalid path."
+    #         return 1
+    #     fi
+    # else
+    #     log_warn "Pacman mirrorlist file '$MIRRORLIST_PATH' not found. No backup created as there's nothing to backup."
+    #     return 0 # 没有文件可备份，但这不被视为错误
+    # fi
+    # log_info "Backing up current Pacman mirrorlist using the unified backup framework..."
+    
+    # 因为 $MIRRORLIST_PATH 是一个系统文件，归 root 所有，
+    # 所以我们直接由当前的 root shell 调用备份函数。
+    if create_backup_and_cleanup "$MIRRORLIST_PATH" "$BACKUP_DIR"; then
+        # 备份成功，函数可以成功返回
+        return 0
     else
-        log_warn "Pacman mirrorlist file '$MIRRORLIST_PATH' not found. No backup created as there's nothing to backup."
-        return 0 # 没有文件可备份，但这不被视为错误
+        # 备份失败，create_backup_and_cleanup 内部已经记录了详细错误。
+        # 此处只需记录一个概要错误，并向上层返回失败状态。
+        log_error "The backup process for mirrorlist failed. See previous logs for details."
+        return 1
     fi
+
 }
 
 # _install_reflector_if_missing()
