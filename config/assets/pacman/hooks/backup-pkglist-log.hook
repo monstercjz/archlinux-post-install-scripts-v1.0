@@ -1,11 +1,20 @@
 [Trigger]
-Operation = Install
-Operation = Upgrade
-Operation = Remove
-Type = Package
-Target = *
+Operation = Install      
+ # 安装操作后触发
+Operation = Upgrade     
+ # 升级操作后触发
+Operation = Remove       
+ # 删除操作后触发
+Type = Package           
+ # 针对软件包的操作
+Target = *               
+ # 匹配所有软件包
 
 [Action]
-Description = Backing up package list...
-When = PostTransaction
-Exec = /usr/bin/bash /path/to/your/archlinux-post-install-scripts-v1.0/config/assets/pacman/hooks/backup-pacman-info.sh
+Description = Backing up package list and pacman log...
+When = PostTransaction  
+ # 在整个事务成功完成后执行
+Exec = /usr/local/bin/backup-pacman-info.sh 
+# 执行我们的备份脚本 (绝对路径)
+# AbortOnFail            # 通常 PostTransaction 不需要这个，如果脚本失败不影响 pacman 完成
+# NeedsTargets           # 此脚本不需要知道具体哪些包被更改
