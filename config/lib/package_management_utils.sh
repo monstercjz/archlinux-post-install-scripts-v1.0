@@ -241,6 +241,7 @@ install_pacman_pkg() {
     log_info "Attempting to install official repository packages with Pacman: '$pkgs_to_install'..."
 
     local pacman_output
+    refresh_pacman_database
     # 直接执行 pacman，不加 sudo，因为框架已保证 root 权限
     if pacman_output=$(pacman -S --noconfirm --needed $pkgs_to_install 2>&1); then
         log_success "Official packages installed successfully: '$pkgs_to_install'."
