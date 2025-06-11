@@ -86,7 +86,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="终端配置 (美化终端)|menu:core_modules:02_user_environment/01_configure_shell.sh"
-    [2]="xxxxx (添加中文社区软件源及秘钥)|menu:core_modules:02_user_environment/02_config_environment_menu.sh"
+    [2]="sudo 免密 (/etc/sudoers.d/cjz)|action:core_modules:02_user_environment/04_configure_sudo.sh"
     [3]="xxxxxx(修改网络信息)|menu:core_modules:02_user_environment/03_setup_network.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
