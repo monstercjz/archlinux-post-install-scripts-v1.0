@@ -216,111 +216,217 @@ clean_aur_cache() {
     return 0
 }
 
-# install_pacman_pkg()
-# @description: 使用 Pacman 安装指定的官方仓库包。
-# @functionality:
-#   - 检查传入的包列表是否为空。
-#   - 执行 'pacman -S --noconfirm --needed <package_list>' 命令安装包。
-#   - '--noconfirm' 用于非交互式。'--needed' 确保只安装未安装的包。
-# @param: $1 (string) package_list - 包含要安装的包的空格分隔字符串 (例如 "git curl zsh")。
-# @returns: 0 on success, 1 on failure.
-# @depends: pacman (系统命令)
-install_pacman_pkg() {
-    local package_list="$1"
+# 在 config/lib/package_management_utils.sh 中
 
-    if [ -z "$package_list" ]; then
-        log_warn "No official packages specified for installation via Pacman. Skipping installation."
+# install_pacman_pkg()
+# @description: 使用 Pacman 安装一个或多个官方仓库的软件包。
+# @functionality:
+#   - 接受一个或多个软件包名称作为参数。
+#   - 将所有软件包名称合并到一个 pacman 命令中进行安装。
+#   - 使用 --noconfirm 和 --needed 选项以实现自动化和效率。
+# @precondition: 此函数应在 root 权限下执行 (由框架保证)。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
+# @returns: 0 on success, 1 on failure.
+# @depends: pacman (系统命令), log_* (from utils.sh)
+install_pacman_pkg() {
+    # 检查是否有传入参数
+    if [ "$#" -eq 0 ]; then
+        log_warn "install_pacman_pkg called with no packages to install."
         return 0
     fi
 
-    log_info "Attempting to install official repository packages with Pacman: '${package_list}'..."
-    local output
-    if output=$(pacman -S --noconfirm --needed "$package_list" 2>&1); then
-        log_success "Official packages installed successfully: '${package_list}'."
-        log_info "Pacman -S output:$(echo -e "\n${output}")"
+    # 关键修复：使用 "$*" 获取所有参数，形成一个空格分隔的字符串
+    local pkgs_to_install="$*"
+    
+    log_info "Attempting to install official repository packages with Pacman: '$pkgs_to_install'..."
+
+    local pacman_output
+    # 直接执行 pacman，不加 sudo，因为框架已保证 root 权限
+    if pacman_output=$(pacman -S --noconfirm --needed $pkgs_to_install 2>&1); then
+        log_success "Official packages installed successfully: '$pkgs_to_install'."
+        # 使用 log_debug 记录详细输出，避免刷屏，但在需要时可查
+        log_debug "Pacman -S output:\n$pacman_output"
         return 0
     else
-        log_error "Failed to install official packages using Pacman: '${package_list}'."
-        log_error "Pacman -S error output:$(echo -e "\n${output}")"
-        log_error "Possible reasons: Network issues, incorrect package names, or dependencies not met."
+        # 错误处理，可以使用框架的 handle_error 函数，它会记录错误并退出
+        # 或者返回 1，让调用者决定如何处理
+        log_error "Failed to install packages: '$pkgs_to_install' with Pacman."
+        log_error "Error details:\n$pacman_output"
         return 1
     fi
 }
+
+# 在 config/lib/package_management_utils.sh 中
 
 # install_yay_pkg()
-# @description: 使用 yay 安装指定的 AUR 包。
+# @description: 使用 yay 安装一个或多个 AUR 包。
 # @functionality:
-#   - 检查传入的包列表是否为空。
-#   - 验证 'yay' 命令是否已安装并可用。如果不可用，则报错并返回。
-#   - 执行 'yay -S --noconfirm --needed <package_list>' 命令安装 AUR 包。
-#   - '--noconfirm' 用于非交互式。'--needed' 确保只安装未安装的包。
-# @param: $1 (string) package_list - 包含要安装的包的空格分隔字符串。
+#   - 接受一个或多个软件包名称作为参数。
+#   - 验证 'yay' 命令是否已安装。
+#   - **核心安全实践：切换到普通用户 ($ORIGINAL_USER) 来执行 yay 命令。**
+#   - 使用 --noconfirm 和 --needed 选项。
+# @precondition: 框架已初始化，ORIGINAL_USER 变量可用。脚本在 root 权限下运行。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
 # @returns: 0 on success, 1 on failure.
-# @depends: yay (系统命令，必须已安装)
+# @depends: yay (系统命令), sudo (系统命令), log_* (from utils.sh)
 install_yay_pkg() {
-    local package_list="$1"
-
-    if [ -z "$package_list" ]; then
-        log_warn "No AUR packages specified for yay installation. Skipping installation."
+    if [ "$#" -eq 0 ]; then
+        log_warn "No AUR packages specified for yay installation. Skipping."
         return 0
     fi
 
-    log_info "Attempting to install AUR packages with yay: '${package_list}'..."
+    # 关键修复：使用 "$*" 获取所有参数
+    local pkgs_to_install="$*"
+    log_info "Attempting to install AUR packages with yay: '$pkgs_to_install'..."
+
     # 检查 yay 是否已安装
     if ! command -v yay &>/dev/null; then
-        log_error "'yay' command not found. Cannot install AUR packages using yay."
-        log_error "Please ensure 'yay' is installed before attempting to install AUR packages with 'install_yay_pkg'."
+        log_error "'yay' command not found. Please install it first, for example, via the '02_package_management/01_install_aur_helper.sh' module."
         return 1
     fi
 
-    local output
-    if output=$(yay -S --noconfirm --needed "$package_list" 2>&1); then
-        log_success "AUR packages installed successfully using yay: '${package_list}'."
-        log_info "yay -S output:$(echo -e "\n${output}")"
+    # **关键安全修复：必须作为普通用户运行 yay**
+    # 使用 `sudo -u` 切换到原始用户来执行命令。
+    # yay 在需要时会自己调用 sudo 获取 root 权限。
+    # 我们传递 --noconfirm 给 yay，它会将其传递给底层的 pacman。
+    log_notice "Running 'yay' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    local yay_output
+    if yay_output=$(sudo -u "$ORIGINAL_USER" yay -S --noconfirm --needed $pkgs_to_install 2>&1); then
+        log_success "AUR packages installed successfully using yay: '$pkgs_to_install'."
+        log_debug "yay -S output:\n$yay_output"
         return 0
     else
-        log_error "Failed to install AUR packages using yay: '${package_list}'."
-        log_error "yay -S error output:$(echo -e "\n${output}")"
-        log_error "Possible reasons: Network issues, incorrect package names, AUR helper configuration, or build failures."
+        log_error "Failed to install AUR packages using yay: '$pkgs_to_install'."
+        log_error "yay -S error output:\n$yay_output"
         return 1
     fi
 }
 
-# install_paru_pkg()
-# @description: 使用 paru 安装指定的 AUR 包。
-# @functionality:
-#   - 检查传入的包列表是否为空。
-#   - 验证 'paru' 命令是否已安装并可用。如果不可用，则报错并返回。
-#   - 执行 'paru -S --noconfirm --needed <package_list>' 命令安装 AUR 包。
-#   - '--noconfirm' 用于非交互式。'--needed' 确保只安装未安装的包。
-# @param: $1 (string) package_list - 包含要安装的包的空格分隔字符串。
-# @returns: 0 on success, 1 on failure.
-# @depends: paru (系统命令，必须已安装)
-install_paru_pkg() {
-    local package_list="$1"
 
-    if [ -z "$package_list" ]; then
-        log_warn "No AUR packages specified for paru installation. Skipping installation."
+# install_paru_pkg()
+# @description: 使用 paru 安装一个或多个 AUR 包。
+# @functionality:
+#   - 接受一个或多个软件包名称作为参数。
+#   - 验证 'paru' 命令是否已安装。
+#   - **核心安全实践：切换到普通用户 ($ORIGINAL_USER) 来执行 paru 命令。**
+#   - 使用 --noconfirm 和 --needed 选项。
+# @precondition: 框架已初始化，ORIGINAL_USER 变量可用。脚本在 root 权限下运行。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
+# @returns: 0 on success, 1 on failure.
+# @depends: paru (系统命令), sudo (系统命令), log_* (from utils.sh)
+install_paru_pkg() {
+    if [ "$#" -eq 0 ]; then
+        log_warn "No AUR packages specified for paru installation. Skipping."
         return 0
     fi
 
-    log_info "Attempting to install AUR packages with paru: '${package_list}'..."
+    # 关键修复：使用 "$*" 获取所有参数
+    local pkgs_to_install="$*"
+    log_info "Attempting to install AUR packages with paru: '$pkgs_to_install'..."
+
     # 检查 paru 是否已安装
     if ! command -v paru &>/dev/null; then
-        log_error "'paru' command not found. Cannot install AUR packages using paru."
-        log_error "Please ensure 'paru' is installed before attempting to install AUR packages with 'install_paru_pkg'."
+        log_error "'paru' command not found. Please install it first, for example, via the '02_package_management/01_install_aur_helper.sh' module."
         return 1
     fi
 
-    local output
-    if output=$(paru -S --noconfirm --needed "$package_list" 2>&1); then
-        log_success "AUR packages installed successfully using paru: '${package_list}'."
-        log_info "paru -S output:$(echo -e "\n${output}")"
+    # **关键安全修复：必须作为普通用户运行 paru**
+    log_notice "Running 'paru' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    local paru_output
+    if paru_output=$(sudo -u "$ORIGINAL_USER" paru -S --noconfirm --needed $pkgs_to_install 2>&1); then
+        log_success "AUR packages installed successfully using paru: '$pkgs_to_install'."
+        log_debug "paru -S output:\n$paru_output"
         return 0
     else
-        log_error "Failed to install AUR packages using paru: '${package_list}'."
-        log_error "paru -S error output:$(echo -e "\n${output}")"
-        log_error "Possible reasons: Network issues, incorrect package names, AUR helper configuration, or build failures."
+        log_error "Failed to install AUR packages using paru: '$pkgs_to_install'."
+        log_error "paru -S error output:\n$paru_output"
+        return 1
+    fi
+}# 在 config/lib/package_management_utils.sh 中
+
+# install_yay_pkg()
+# @description: 使用 yay 安装一个或多个 AUR 包。
+# @functionality:
+#   - 接受一个或多个软件包名称作为参数。
+#   - 验证 'yay' 命令是否已安装。
+#   - **核心安全实践：切换到普通用户 ($ORIGINAL_USER) 来执行 yay 命令。**
+#   - 使用 --noconfirm 和 --needed 选项。
+# @precondition: 框架已初始化，ORIGINAL_USER 变量可用。脚本在 root 权限下运行。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
+# @returns: 0 on success, 1 on failure.
+# @depends: yay (系统命令), sudo (系统命令), log_* (from utils.sh)
+install_yay_pkg() {
+    if [ "$#" -eq 0 ]; then
+        log_warn "No AUR packages specified for yay installation. Skipping."
+        return 0
+    fi
+
+    # 关键修复：使用 "$*" 获取所有参数
+    local pkgs_to_install="$*"
+    log_info "Attempting to install AUR packages with yay: '$pkgs_to_install'..."
+
+    # 检查 yay 是否已安装
+    if ! command -v yay &>/dev/null; then
+        log_error "'yay' command not found. Please install it first, for example, via the '02_package_management/01_install_aur_helper.sh' module."
+        return 1
+    fi
+
+    # **关键安全修复：必须作为普通用户运行 yay**
+    # 使用 `sudo -u` 切换到原始用户来执行命令。
+    # yay 在需要时会自己调用 sudo 获取 root 权限。
+    # 我们传递 --noconfirm 给 yay，它会将其传递给底层的 pacman。
+    log_notice "Running 'yay' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    local yay_output
+    # 使用新的通用函数
+    if yay_output=$(run_as_user "yay -S --noconfirm --needed $pkgs_to_install" 2>&1); then
+        log_success "AUR packages installed successfully using yay: '$pkgs_to_install'."
+        log_debug "yay -S output:\n$yay_output"
+        return 0
+    else
+        log_error "Failed to install AUR packages using yay: '$pkgs_to_install'."
+        log_error "yay -S error output:\n$yay_output"
+        return 1
+    fi
+}
+
+
+# install_paru_pkg()
+# @description: 使用 paru 安装一个或多个 AUR 包。
+# @functionality:
+#   - 接受一个或多个软件包名称作为参数。
+#   - 验证 'paru' 命令是否已安装。
+#   - **核心安全实践：切换到普通用户 ($ORIGINAL_USER) 来执行 paru 命令。**
+#   - 使用 --noconfirm 和 --needed 选项。
+# @precondition: 框架已初始化，ORIGINAL_USER 变量可用。脚本在 root 权限下运行。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
+# @returns: 0 on success, 1 on failure.
+# @depends: paru (系统命令), sudo (系统命令), log_* (from utils.sh)
+install_paru_pkg() {
+    if [ "$#" -eq 0 ]; then
+        log_warn "No AUR packages specified for paru installation. Skipping."
+        return 0
+    fi
+
+    # 关键修复：使用 "$*" 获取所有参数
+    local pkgs_to_install="$*"
+    log_info "Attempting to install AUR packages with paru: '$pkgs_to_install'..."
+
+    # 检查 paru 是否已安装
+    if ! command -v paru &>/dev/null; then
+        log_error "'paru' command not found. Please install it first, for example, via the '02_package_management/01_install_aur_helper.sh' module."
+        return 1
+    fi
+
+    # **关键安全修复：必须作为普通用户运行 paru**
+    log_notice "Running 'paru' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    local paru_output
+    if paru_output=$(run_as_user "paru -S --noconfirm --needed $pkgs_to_install" 2>&1); then
+        log_success "AUR packages installed successfully using paru: '$pkgs_to_install'."
+        log_debug "paru -S output:\n$paru_output"
+        return 0
+    else
+        log_error "Failed to install AUR packages using paru: '$pkgs_to_install'."
+        log_error "paru -S error output:\n$paru_output"
         return 1
     fi
 }

@@ -1108,3 +1108,42 @@ _confirm_action() {
         return 1
     fi
 }
+
+# 在 config/lib/utils.sh 中
+
+# run_as_user()
+# @description: 封装以原始用户 ($ORIGINAL_USER) 身份执行命令的逻辑。
+# @functionality:
+#   - 检查 ORIGINAL_USER 变量是否已设置。
+#   - 使用 `sudo -u "$ORIGINAL_USER" bash -c "..."` 来安全地执行传入的命令字符串。
+#   - 记录将要执行的命令。
+# @precondition: 框架已初始化，ORIGINAL_USER 变量可用。脚本在 root 权限下运行。
+# @param: $@ (string) - 要以普通用户身份执行的完整命令字符串。
+# @returns: 返回被执行命令的退出码。
+# @depends: sudo (系统命令), log_* (from utils.sh)
+run_as_user() {
+    if [ -z "${ORIGINAL_USER:-}" ]; then
+        log_error "run_as_user: ORIGINAL_USER variable is not set. Cannot switch user."
+        return 1
+    fi
+    if [ "$#" -eq 0 ]; then
+        log_warn "run_as_user: No command provided to execute."
+        return 0
+    fi
+
+    # 将所有参数作为一个完整的命令字符串来执行
+    local cmd_string="$*"
+    
+    log_debug "Executing command as user '$ORIGINAL_USER': $cmd_string"
+    
+    # 使用 sudo -u 来切换用户并执行命令。
+    # bash -c 使得我们可以传递一个复杂的、包含管道或重定向的命令字符串。
+    # 将命令字符串作为单个参数传递给 bash -c 是最安全的方式。
+    if sudo -u "$ORIGINAL_USER" bash -c "$cmd_string"; then
+        return 0
+    else
+        local exit_code=$?
+        log_warn "Command executed as '$ORIGINAL_USER' failed with exit code $exit_code: $cmd_string"
+        return $exit_code
+    fi
+}

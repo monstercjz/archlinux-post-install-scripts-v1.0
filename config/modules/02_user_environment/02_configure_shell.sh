@@ -2,17 +2,25 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/modules/03_user_environment/01_configure_shell.sh
-# 版本: 1.1.0 (流程复刻版)
+# 版本: 1.0.0
 # 日期: 2025-06-12
-# 描述: 全自动安装和配置 Zsh 全家桶。此版本完全复刻了原始独立脚本的
-#       “检查-决策-安装-配置-验证”的用户交互流程，并适配到本项目框架。
+# 描述: 配置 Zsh Shell 环境，包括 Oh My Zsh, Powerlevel10k 主题及常用插件。
+#       此模块整合了一个独立的 Zsh 配置项目，并将其完全适配到当前框架中。
 # ------------------------------------------------------------------------------
 # 核心功能:
-#   - 阶段化执行：清晰地分为检查、安装、配置和验证四个阶段。
-#   - 交互式决策：在检查后向用户报告现状，并询问安装策略。
-#   - 智能安装：根据用户决策和检查结果，精确安装所需组件。
-#   - 全自动配置：安全、幂等地修改 .zshrc 文件。
-#   - 详尽的报告与指导：在流程开始和结束时提供清晰的报告和操作指南。
+# - 检查系统环境和 Zsh 相关组件的安装状态。
+# - 安装 Zsh, Oh My Zsh, fzf, bat, eza 等核心工具。
+# - 安装 Powerlevel10k 推荐字体 (MesloLGS NF)。
+# - 安装 zsh-syntax-highlighting, zsh-autosuggestions, fzf-tab 等插件。
+# - 自动配置 .zshrc 文件，启用主题和插件，并添加常用别名。
+# - 提供详细的安装后验证和用户指导。
+# ------------------------------------------------------------------------------
+# 框架适配说明:
+# - 使用框架的顶部引导块进行环境初始化。
+# - 全面采用框架的日志系统 (log_info, log_error, display_header_section 等)。
+# - 使用框架的包管理工具 (is_package_installed, install_pacman_pkg)。
+# - 使用框架的全局变量 ($ORIGINAL_USER, $ORIGINAL_HOME)。
+# - 所有需要以普通用户身份执行的命令，均通过 `sudo -u $ORIGINAL_USER` 执行。
 # ==============================================================================
 
 # --- 脚本顶部引导块 START ---
@@ -29,7 +37,7 @@ if [ -z "${BASE_DIR+set}" ]; then
         _project_root_candidate=$(dirname "$_project_root_candidate")
     done
     if [[ -z "$_found_base_dir" ]]; then
-        echo -e "\033[0;31mFatal Error:\033[0m Could not determine project base directory." >&2
+        echo -e "\033[0;31mFatal Error:\033[0m Could not determine project base directory for '$_current_script_entrypoint'." >&2
         exit 1
     fi
     export BASE_DIR="$_found_base_dir"
@@ -37,371 +45,380 @@ fi
 source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoint"
 # --- 脚本顶部引导块 END ---
 
+
 # ==============================================================================
-# 全局变量 (模块内)
+# 全局变量和定义 (模块作用域)
 # ==============================================================================
+
+# @var string ZSHRC_FILE 目标用户的 .zshrc 文件路径
+ZSHRC_FILE="${ORIGINAL_HOME}/.zshrc"
+# @var string P10K_CONFIG_FILE 目标用户的 .p10k.zsh 文件路径
+P10K_CONFIG_FILE="${ORIGINAL_HOME}/.p10k.zsh"
+# @var string ZSH_CUSTOM_DIR Oh My Zsh 自定义目录路径
+ZSH_CUSTOM_DIR="${ORIGINAL_HOME}/.oh-my-zsh/custom"
+
+# @var array SOFTWARE_TO_CHECK 需要检查的软件包列表
+declare -A SOFTWARE_TO_CHECK=(
+    ["zsh"]="zsh"
+    ["fzf"]="fzf"
+    ["bat"]="bat" # Arch 仓库中是 bat
+    ["eza"]="eza"
+    ["git"]="git"
+    ["curl"]="curl"
+    ["wget"]="wget"
+)
+
+# @var array COMPONENTS_TO_CHECK 需要检查的非 pacman 组件
+declare -A COMPONENTS_TO_CHECK=(
+    ["oh-my-zsh"]="${ORIGINAL_HOME}/.oh-my-zsh"
+    ["zsh-syntax-highlighting"]="zsh-syntax-highlighting"
+    ["zsh-autosuggestions"]="zsh-autosuggestions"
+    ["fzf-tab"]="fzf-tab"
+    ["powerlevel10k"]="powerlevel10k"
+    ["meslolgs-font"]="MesloLGS"
+)
+
+# @var array CHECK_RESULTS 存储所有检查结果
 declare -A CHECK_RESULTS
-INSTALL_MODE="" # 将由 _perform_checks_and_get_decision 函数填充
-# --- Zsh 和用户 Shell 相关配置 ---
-export ZSH_CUSTOM_PLUGINS_DIR="${ZSH_CUSTOM:-${ORIGINAL_HOME}/.oh-my-zsh/custom}/plugins"
-export ZSH_CUSTOM_THEMES_DIR="${ZSH_CUSTOM:-${ORIGINAL_HOME}/.oh-my-zsh/custom}/themes"
+# @var string INSTALL_MODE 用户的安装选择 (missing, force)
+INSTALL_MODE=""
 
-# Zsh 及其相关工具的软件包列表
-declare -a PKG_ZSH_STACK=("zsh" "fzf" "bat" "eza")
-# Oh My Zsh 插件的 Git 仓库 URL
-declare -A ZSH_PLUGINS_GIT_URLS=(
-    ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
-    ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
-    ["fzf-tab"]="https://github.com/Aloxaf/fzf-tab.git"
-)
-# Powerlevel10k 主题的 Git 仓库 URL
-export ZSH_THEME_P10K_GIT_URL="https://github.com/romkatv/powerlevel10k.git"
-
-# Powerlevel10k 推荐字体的下载 URL
-declare -A FONT_MESLOLGS_URLS=(
-    ["MesloLGS NF Regular.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
-    ["MesloLGS NF Bold.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf"
-    ["MesloLGS NF Italic.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf"
-    ["MesloLGS NF Bold Italic.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf"
-)
 
 # ==============================================================================
-# 阶段一：检查与决策
+# 辅助函数 (移植并适配)
 # ==============================================================================
 
-# _check_single_item()
-# @description: 检查单个组件的安装状态
-_check_single_item() {
-    local key="$1"
-    
-    case "$key" in
-        "oh-my-zsh")
-            [ -d "${ORIGINAL_HOME}/.oh-my-zsh" ] && CHECK_RESULTS[$key]="已安装" || CHECK_RESULTS[$key]="未安装"
-            ;;
-        "p10k-theme")
-            [ -d "${ZSH_CUSTOM_THEMES_DIR}/powerlevel10k" ] && CHECK_RESULTS[$key]="已安装" || CHECK_RESULTS[$key]="未安装"
-            ;;
-        "meslolgs-font")
-            # 这是一个启发式检查，不完全可靠
-            if find "${ORIGINAL_HOME}/.local/share/fonts" -iname "*MesloLGS*" -print -quit 2>/dev/null | grep -q .; then
-                CHECK_RESULTS[$key]="可能已安装"
-            else
-                CHECK_RESULTS[$key]="未安装"
-            fi
-            ;;
-        *) # 检查插件或pacman包
-            if [[ " ${!ZSH_PLUGINS_GIT_URLS[@]} " =~ " ${key} " ]]; then
-                # 是插件
-                [ -d "${ZSH_CUSTOM_PLUGINS_DIR}/${key}" ] && CHECK_RESULTS[$key]="已安装" || CHECK_RESULTS[$key]="未安装"
-            elif is_package_installed "$key"; then
-                # 是 pacman 包
-                 CHECK_RESULTS[$key]="已安装"
-            else
-                 CHECK_RESULTS[$key]="未安装"
-            fi
-            ;;
-    esac
+# _is_omz_plugin_installed()
+# @description 检查 Oh My Zsh 插件是否已安装
+_is_omz_plugin_installed() {
+    local plugin_name="$1"
+    local plugin_dir="${ZSH_CUSTOM_DIR}/plugins/${plugin_name}"
+    [ -d "$plugin_dir" ] && [ -n "$(ls -A "$plugin_dir")" ]
 }
 
-# _perform_checks_and_get_decision()
-# @description: 执行所有检查，向用户报告，并获取安装决策。
-_perform_checks_and_get_decision() {
-    display_header_section "Phase 1: Environment Check" "default" 80
-    
-    local components_to_check=("zsh" "fzf" "bat" "eza" "git" "curl" "wget" "oh-my-zsh" "${!ZSH_PLUGINS_GIT_URLS[@]}" "p10k-theme" "meslolgs-font")
+# _is_p10k_theme_installed()
+# @description 检查 Powerlevel10k 主题是否已安装
+_is_p10k_theme_installed() {
+    local theme_dir="${ZSH_CUSTOM_DIR}/themes/powerlevel10k"
+    [ -d "$theme_dir" ] && [ -f "${theme_dir}/powerlevel10k.zsh-theme" ]
+}
+
+# _is_font_installed()
+# @description 检查字体是否可能已安装
+_is_font_installed() {
+    local font_pattern="$1"
+    local font_dirs=(
+        "${ORIGINAL_HOME}/.local/share/fonts"
+        "${ORIGINAL_HOME}/.fonts"
+        "/usr/local/share/fonts"
+        "/usr/share/fonts"
+    )
+    for dir in "${font_dirs[@]}"; do
+        if [ -d "$dir" ]; then
+            # 使用 find 查找，-quit 使其找到第一个就退出，提高效率
+            if find "$dir" -iname "*${font_pattern}*" -print -quit | grep -q .; then
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+
+
+
+# ==============================================================================
+# 核心功能函数 (移植并重构)
+# ==============================================================================
+
+# _perform_checks()
+# @description 检查所有软件和组件的安装状态，并与用户交互决定安装模式
+_perform_checks() {
+    display_header_section "环境检查" "default" 80
+    log_info "开始检查系统环境和 Zsh 相关组件..."
+
     local all_installed=true
 
-    log_info "Performing checks for all required components..."
-    for item in "${components_to_check[@]}"; do
-        _check_single_item "$item"
-        if [[ "${CHECK_RESULTS[$item]}" == "未安装" ]]; then
+    # 检查 Pacman 包
+    for key in "${!SOFTWARE_TO_CHECK[@]}"; do
+        if is_package_installed "${SOFTWARE_TO_CHECK[$key]}"; then
+            CHECK_RESULTS[$key]="已安装"
+        else
+            CHECK_RESULTS[$key]="未安装"
             all_installed=false
         fi
     done
 
-    # 显示检查报告
-    log_summary "------------------- Check Report -------------------"
-    printf "%-30s | %s\n" "Component" "Status"
-    log_summary "--------------------------------------------------"
-    for item in "${!CHECK_RESULTS[@]}"; do
-        local status="${CHECK_RESULTS[$item]}"
-        local color="${COLOR_GREEN}"
-        if [[ "$status" != "已安装" ]]; then color="${COLOR_YELLOW}"; fi
-        log_summary "$(printf "%-30s | ${color}%s${COLOR_RESET}" "$item" "$status")"
+    # 检查非 Pacman 组件
+    CHECK_RESULTS["oh-my-zsh"]=$([ -d "${COMPONENTS_TO_CHECK['oh-my-zsh']}" ] && echo "已安装" || { echo "未安装"; all_installed=false; })
+    CHECK_RESULTS["zsh-syntax-highlighting"]=$(_is_omz_plugin_installed "${COMPONENTS_TO_CHECK['zsh-syntax-highlighting']}" && echo "已安装" || { echo "未安装"; all_installed=false; })
+    CHECK_RESULTS["zsh-autosuggestions"]=$(_is_omz_plugin_installed "${COMPONENTS_TO_CHECK['zsh-autosuggestions']}" && echo "已安装" || { echo "未安装"; all_installed=false; })
+    CHECK_RESULTS["fzf-tab"]=$(_is_omz_plugin_installed "${COMPONENTS_TO_CHECK['fzf-tab']}" && echo "已安装" || { echo "未安装"; all_installed=false; })
+    CHECK_RESULTS["powerlevel10k"]=$(_is_p10k_theme_installed && echo "已安装" || { echo "未安装"; all_installed=false; })
+    CHECK_RESULTS["meslolgs-font"]=$(_is_font_installed "${COMPONENTS_TO_CHECK['meslolgs-font']}" && echo "可能已安装" || echo "未安装")
+    if [[ "${CHECK_RESULTS['meslolgs-font']}" == "未安装" ]]; then
+        all_installed=false
+    fi
+
+    log_info "检查结果汇总:"
+    echo "--------------------------------------------------"
+    for key in "${!SOFTWARE_TO_CHECK[@]}" "${!COMPONENTS_TO_CHECK[@]}"; do
+        printf "  %-30s: %s\n" "$key" "${CHECK_RESULTS[$key]}"
     done
-    log_summary "--------------------------------------------------"
+    echo "--------------------------------------------------"
 
-    # 获取用户决策
-    if [[ "$all_installed" = true ]]; then
-        log_notice "All components seem to be installed."
-        # 使用 select 实现菜单选择
-        PS3="$(echo -e "${COLOR_YELLOW}Please choose an action: ${COLOR_RESET}")"
-        options=("Force reinstall all components" "Skip installation, only run configuration" "Cancel")
-        select opt in "${options[@]}"; do
-            case $opt in
-                "${options[0]}") INSTALL_MODE="force"; break;;
-                "${options[1]}") INSTALL_MODE="skip_install"; break;;
-                "${options[2]}") INSTALL_MODE="cancel"; break;;
-                *) log_warn "Invalid option. Please enter 1, 2, or 3.";;
-            esac
-        done
+    if $all_installed; then
+        log_success "所有组件似乎都已安装。"
+        if _confirm_action "是否强制重新安装所有组件？" "n"; then
+            INSTALL_MODE="force"
+        else
+            log_info "用户选择跳过安装，仅执行配置检查。"
+            return 0 # 跳过安装
+        fi
     else
-        log_warn "Some components are missing."
-        PS3="$(echo -e "${COLOR_YELLOW}Please choose an installation mode: ${COLOR_RESET}")"
-        options=("Install missing components only" "Force reinstall all components" "Cancel")
-        select opt in "${options[@]}"; do
-            case $opt in
-                "${options[0]}") INSTALL_MODE="missing"; break;;
-                "${options[1]}") INSTALL_MODE="force"; break;;
-                "${options[2]}") INSTALL_MODE="cancel"; break;;
-                *) log_warn "Invalid option. Please enter 1, 2, or 3.";;
-            esac
-        done
-    fi
-
-    if [[ "$INSTALL_MODE" == "cancel" ]]; then
-        log_info "User cancelled the operation."
-        return 1
-    fi
-
-    log_info "User selected mode: '$INSTALL_MODE'"
-    return 0
-}
-
-
-# ==============================================================================
-# 阶段二：安装
-# ==============================================================================
-
-_install_component() {
-    local item="$1"
-    # 如果不是强制模式，且已安装，则跳过
-    if [[ "$INSTALL_MODE" != "force" && "${CHECK_RESULTS[$item]}" == "已安装" ]]; then
-        return 0
-    fi
-    # 字体特殊处理
-    if [[ "$item" == "meslolgs-font" && "$INSTALL_MODE" != "force" && "${CHECK_RESULTS[$item]}" == "可能已安装" ]]; then
-        if ! _confirm_action "Font 'MesloLGS' may already be installed. Do you want to install it again?" "n"; then
-            return 0
+        log_notice "部分组件未安装。"
+        if _confirm_action "是否安装缺失的组件？（选择'n'将只配置已安装部分）" "y"; then
+            INSTALL_MODE="missing"
+        else
+            log_info "用户选择跳过安装，仅执行配置检查。"
+            return 0 # 跳过安装
         fi
     fi
-
-    log_notice "Installing/Updating component: $item"
-    case "$item" in
-        "oh-my-zsh")
-            _run_as_user "sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\" \"\" --unattended" || log_error "Failed to install Oh My Zsh."
-            ;;
-        "p10k-theme")
-            _run_as_user "git clone --depth=1 '${ZSH_THEME_P10K_GIT_URL}' '${ZSH_CUSTOM_THEMES_DIR}/powerlevel10k'" || log_error "Failed to install Powerlevel10k."
-            ;;
-        "meslolgs-font")
-            _install_fonts_logic
-            ;;
-        *)
-            if [[ " ${!ZSH_PLUGINS_GIT_URLS[@]} " =~ " ${item} " ]]; then
-                local repo_url="${ZSH_PLUGINS_GIT_URLS[$item]}"
-                _run_as_user "git clone --depth=1 '${repo_url}' '${ZSH_CUSTOM_PLUGINS_DIR}/${item}'" || log_error "Failed to install plugin '$item'."
-            fi
-            ;;
-    esac
-}
-
-_install_fonts_logic() {
-    # 字体安装逻辑
-    local font_dir_user="${ORIGINAL_HOME}/.local/share/fonts"
-    mkdir -p "$font_dir_user" && chown -R "${ORIGINAL_USER}:${ORIGINAL_USER}" "$(dirname "$font_dir_user")"
-
-    for font_name in "${!FONT_MESLOLGS_URLS[@]}"; do
-        local dest_path="${font_dir_user}/${font_name}"
-        if [[ "$INSTALL_MODE" == "force" || ! -f "$dest_path" ]]; then
-            log_info "Downloading '$font_name'..."
-            curl -fLo "$dest_path" "${FONT_MESLOLGS_URLS[$font_name]}" && chown "${ORIGINAL_USER}:${ORIGINAL_USER}" "$dest_path" || log_error "Failed to download $font_name"
-        fi
-    done
-    log_info "Updating font cache..."
-    _run_as_user "fc-cache -fv"
-}
-
-_run_installation_phase() {
-    if [[ "$INSTALL_MODE" == "skip_install" ]]; then
-        log_info "Skipping installation phase as requested by user."
-        return 0
-    fi
-
-    display_header_section "Phase 2: Installation" "default" 80
-
-    # 安装 pacman 包
-    local pacman_pkgs_to_install=()
-    local pacman_pkg_keys=("zsh" "fzf" "bat" "eza" "git" "curl" "wget")
-    for key in "${pacman_pkg_keys[@]}"; do
-        if [[ "$INSTALL_MODE" == "force" || "${CHECK_RESULTS[$key]}" != "已安装" ]]; then
-            pacman_pkgs_to_install+=("$key")
-        fi
-    done
-    if [ ${#pacman_pkgs_to_install[@]} -gt 0 ]; then
-        install_pacman_pkg "${pacman_pkgs_to_install[@]}"
-    fi
-
-    # 安装其他组件
-    local components_to_install=("oh-my-zsh" "${!ZSH_PLUGINS_GIT_URLS[@]}" "p10k-theme" "meslolgs-font")
-    for item in "${components_to_install[@]}"; do
-        _install_component "$item"
-    done
+    return 1 # 需要安装
 }
 
 
-# ==============================================================================
-# 阶段三：配置
-# ==============================================================================
-
-_run_configuration_phase() {
-    display_header_section "Phase 3: Configuration" "default" 80
-    log_info "Configuring .zshrc file for user '$ORIGINAL_USER'..."
-    local zshrc_path="${ORIGINAL_HOME}/.zshrc"
-
-    # 备份
-    if [ -f "$zshrc_path" ]; then
-        local backup_path="${zshrc_path}.bak.$(date +%Y%m%d_%H%M%S)"
-        cp "$zshrc_path" "$backup_path" && chown "${ORIGINAL_USER}:${ORIGINAL_USER}" "$backup_path"
-        log_info "Backed up existing .zshrc to '$backup_path'."
-    else
-        touch "$zshrc_path" && chown "${ORIGINAL_USER}:${ORIGINAL_USER}" "$zshrc_path"
-    fi
-
-    # 使用 _run_as_user 和 here document 安全地修改文件
-    local command_to_run
-    read -r -d '' command_to_run << 'EOF'
-ZSHRC_FILE=~/.zshrc
-# 清理旧的托管配置
-sed -i -e '/# Zsh theme setting (managed by script)/,/# End of Zsh theme setting/d' \
-       -e '/# Oh My Zsh plugins (managed by script)/,/# End of Oh My Zsh plugins/d' \
-       -e '/# Recommended aliases (managed by script)/,/# End of recommended aliases/d' \
-       -e '/# fzf-tab zstyle configuration (managed by script)/,/# End of fzf-tab zstyle configuration/d' \
-       -e '/# Powerlevel10k source line (managed by script)/,/# End of Powerlevel10k source line/d' \
-       "$ZSHRC_FILE"
-
-# 写入新的托管配置
-{
-    echo '# Zsh theme setting (managed by script)'
-    echo 'ZSH_THEME="powerlevel10k/powerlevel10k"'
-    echo '# End of Zsh theme setting'
-    echo ''
-    echo '# Oh My Zsh plugins (managed by script)'
-    echo 'plugins=(git zsh-syntax-highlighting zsh-autosuggestions fzf fzf-tab)'
-    echo '# End of Oh My Zsh plugins'
-    echo ''
-    echo '# Powerlevel10k source line (managed by script)'
-    echo '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-    echo '# End of Powerlevel10k source line'
-    echo ''
-    echo '# Recommended aliases (managed by script)'
-    echo "if command -v bat &>/dev/null; then alias cat='bat'; fi"
-    echo "if command -v eza &>/dev/null; then"
-    echo "    alias ls='eza'"
-    echo "    alias l='eza -l'"
-    echo "    alias la='eza -la'"
-    echo "    alias ll='eza -l --git --icons'"
-    echo "    alias tree='eza --tree'"
-    echo "fi"
-    echo '# End of recommended aliases'
-    echo ''
-    echo '# fzf-tab zstyle configuration (managed by script)'
-    echo "zstyle ':fzf-tab:*' fzf-flags --height=60% --border"
-    echo "zstyle ':fzf-tab:complete:*:*' fzf-preview '(bat --color=always --line-range :500 \${(f)realpath} 2>/dev/null || exa -al --git --icons \${(f)realpath} || ls -lAh --color=always \${(f)realpath}) 2>/dev/null'"
-    echo '# End of fzf-tab zstyle configuration'
-} >> "$ZSHRC_FILE"
-EOF
-
-    if _run_as_user "$command_to_run"; then
-        log_success ".zshrc configuration completed successfully."
-    else
-        log_error "Failed to configure .zshrc."
-    fi
-}
-
-# ==============================================================================
-# 阶段四：验证与指导
-# ==============================================================================
-
-_run_post_install_phase() {
-    display_header_section "Phase 4: Verification & Next Steps" "default" 80
+# _install_fonts()
+# @description 下载并安装 MesloLGS NF 字体
+_install_fonts() {
+    display_header_section "安装字体 (MesloLGS NF)" "default" 80
     
-    # 重新检查并报告
-    log_info "Performing final verification..."
-    local final_components_to_check=("zsh" "fzf" "bat" "eza" "oh-my-zsh" "${!ZSH_PLUGINS_GIT_URLS[@]}" "p10k-theme" "meslolgs-font")
-    local final_report=""
-    for item in "${final_components_to_check[@]}"; do
-        _check_single_item "$item"
-        final_report+=$(printf "%-30s | %s\n" "$item" "${CHECK_RESULTS[$item]}")
-    done
-    log_summary "---------------- Final Verification Report -----------------"
-    echo -e "$final_report"
-    log_summary "----------------------------------------------------------"
+    local font_dir="${ORIGINAL_HOME}/.local/share/fonts"
+    log_info "字体将安装到: $font_dir"
+    run_as_user "mkdir -p '$font_dir'"
 
-    # 后续指导
-    log_notice "Setup finished. Please follow these steps to complete:"
-    log_info "1. ${COLOR_YELLOW}Set Zsh as default shell:${COLOR_RESET} Run 'chsh -s \$(which zsh) ${ORIGINAL_USER}' and re-login."
-    log_info "2. ${COLOR_YELLOW}Configure Powerlevel10k:${COLOR_RESET} Open a new Zsh terminal and run 'p10k configure'."
-    log_info "3. ${COLOR_YELLOW}Set Terminal Font:${COLOR_RESET} In your terminal's settings, choose 'MesloLGS NF' as the font."
-    
-    # 询问是否设置默认shell
-    if [[ "$(getent passwd "$ORIGINAL_USER" | cut -d: -f7)" != "$(which zsh)" ]]; then
-        if _confirm_action "Do you want to set Zsh as the default shell for '$ORIGINAL_USER' now?"; then
-            if chsh -s "$(which zsh)" "$ORIGINAL_USER"; then
-                log_success "Default shell for '$ORIGINAL_USER' has been changed. Please re-login to take effect."
+    declare -A FONT_URLS=(
+        ["MesloLGS NF Regular.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
+        ["MesloLGS NF Bold.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf"
+        ["MesloLGS NF Italic.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf"
+        ["MesloLGS NF Bold Italic.ttf"]="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf"
+    )
+
+    local all_success=true
+    for font_name in "${!FONT_URLS[@]}"; do
+        local dest_path="$font_dir/$font_name"
+        if [ -f "$dest_path" ]; then
+            log_info "字体 '$font_name' 已存在，跳过下载。"
+            continue
+        fi
+        log_info "下载字体: $font_name"
+        if ! run_as_user "curl -fLo '$dest_path' '${FONT_URLS[$font_name]}'"; then
+            log_error "下载字体 '$font_name' 失败。"
+            all_success=false
+        fi
+    done
+
+    if $all_success; then
+        log_info "正在更新字体缓存..."
+        if run_as_user "fc-cache -fv"; then
+            log_success "字体安装和缓存更新成功。"
+        else
+            log_warn "字体缓存更新失败，可能需要手动运行 'fc-cache -fv' 或重启。"
+        fi
+    else
+        handle_error "字体下载失败，中止操作。" 1
+    fi
+}
+
+# _run_installation()
+# @description 执行所有必要的安装操作
+_run_installation() {
+    display_header_section "安装 Zsh 组件" "box" 80
+
+    # 1. 安装 Pacman 包
+    local pkgs_to_install=()
+    for key in "${!SOFTWARE_TO_CHECK[@]}"; do
+        if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS[$key]}" == "未安装" ]]; then
+            pkgs_to_install+=("${SOFTWARE_TO_CHECK[$key]}")
+        fi
+    done
+    if [ ${#pkgs_to_install[@]} -gt 0 ]; then
+        log_info "将通过 pacman 安装以下软件包: ${pkgs_to_install[*]}"
+        install_pacman_pkg "${pkgs_to_install[@]}"
+    else
+        log_info "无需通过 pacman 安装新软件包。"
+    fi
+
+    # 2. 安装字体
+    if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['meslolgs-font']}" == "未安装" ]]; then
+        _install_fonts
+    fi
+
+    # 3. 安装 Oh My Zsh
+    local oh_my_zsh_dir="${COMPONENTS_TO_CHECK['oh-my-zsh']}"
+    if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['oh-my-zsh']}" == "未安装" ]]; then
+        log_info "安装 Oh My Zsh..."
+        if [ -d "$oh_my_zsh_dir" ]; then
+            log_warn "Oh My Zsh 目录已存在，将删除后重新安装。"
+            rm -rf "$oh_my_zsh_dir"
+        fi
+        # 使用 --unattended 自动安装，并用 --keep-zshrc 避免覆盖已有配置
+        local install_script_url="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+        if ! run_as_user "sh -c \"\$(curl -fsSL $install_script_url)\" \"\" --unattended --keep-zshrc"; then
+            handle_error "Oh My Zsh 安装失败！" 1
+        fi
+        log_success "Oh My Zsh 安装成功。"
+    fi
+
+    # 4. 安装 Oh My Zsh 插件和主题
+    declare -A PLUGINS_TO_INSTALL=(
+        ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
+        ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
+        ["fzf-tab"]="https://github.com/Aloxaf/fzf-tab.git"
+    )
+    local p10k_repo="https://github.com/romkatv/powerlevel10k.git"
+
+    # 确保 custom 目录存在
+    run_as_user "mkdir -p '${ZSH_CUSTOM_DIR}/plugins' '${ZSH_CUSTOM_DIR}/themes'"
+
+    for plugin in "${!PLUGINS_TO_INSTALL[@]}"; do
+        if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS[$plugin]}" == "未安装" ]]; then
+            local plugin_dir="${ZSH_CUSTOM_DIR}/plugins/${plugin}"
+            log_info "安装插件: $plugin"
+            if [ -d "$plugin_dir" ]; then rm -rf "$plugin_dir"; fi
+            if ! run_as_user "git clone --depth=1 '${PLUGINS_TO_INSTALL[$plugin]}' '$plugin_dir'"; then
+                log_error "安装插件 '$plugin' 失败！"
             else
-                log_error "Failed to change default shell. Please run 'sudo chsh -s \$(which zsh) ${ORIGINAL_USER}' manually."
+                log_success "插件 '$plugin' 安装成功。"
             fi
+        fi
+    done
+    
+    # 安装 Powerlevel10k
+    if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['powerlevel10k']}" == "未安装" ]]; then
+        local theme_dir="${ZSH_CUSTOM_DIR}/themes/powerlevel10k"
+        log_info "安装主题: Powerlevel10k"
+        if [ -d "$theme_dir" ]; then rm -rf "$theme_dir"; fi
+        if ! run_as_user "git clone --depth=1 '$p10k_repo' '$theme_dir'"; then
+            log_error "安装 Powerlevel10k 失败！"
+        else
+            log_success "Powerlevel10k 主题安装成功。"
         fi
     fi
 }
 
-# ==============================================================================
-# 辅助函数
-# ==============================================================================
+# _run_configuration()
+# @description 修改 .zshrc 文件以启用主题和插件
+_run_configuration() {
+    display_header_section "配置 .zshrc 文件" "box" 80
 
-# _run_as_user()
-# @description: 以原始用户的身份执行命令。
-_run_as_user() {
-    log_debug "Executing command as user '$ORIGINAL_USER': $@"
-    if command -v runuser &>/dev/null; then
-        runuser -l "$ORIGINAL_USER" -c "$*"
-    elif command -v su &>/dev/null; then
-        su - "$ORIGINAL_USER" -c "$*"
-    else
-        log_error "Cannot execute command as user: 'runuser' and 'su' not found."
-        return 1
+    if [ ! -f "$ZSHRC_FILE" ]; then
+        log_info "$ZSHRC_FILE 不存在，将从 Oh My Zsh 模板创建。"
+        run_as_user "cp '${ORIGINAL_HOME}/.oh-my-zsh/templates/zshrc.zsh-template' '$ZSHRC_FILE'"
     fi
+
+    log_info "备份当前 .zshrc 文件..."
+    local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+    run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
+    log_success "已备份到: $backup_file"
+
+    # 1. 配置主题
+    log_info "设置 ZSH_THEME 为 'powerlevel10k/powerlevel10k'..."
+    run_as_user "sed -i 's|^\\s*ZSH_THEME=.*|ZSH_THEME=\"powerlevel10k/powerlevel10k\"|' '$ZSHRC_FILE'"
+
+    # 2. 配置插件
+    local desired_plugins=("git" "zsh-syntax-highlighting" "zsh-autosuggestions" "fzf" "fzf-tab")
+    log_info "设置启用的插件: ${desired_plugins[*]}"
+    local plugins_str="plugins=(${desired_plugins[*]})"
+    # 如果 .zshrc 中已有 plugins=(...) 行，则替换它；否则，在末尾添加。
+    if run_as_user "grep -q '^\\s*plugins=(' '$ZSHRC_FILE'"; then
+        run_as_user "sed -i 's|^\\s*plugins=(.*)|$plugins_str|' '$ZSHRC_FILE'"
+    else
+        run_as_user "echo -e '\n$plugins_str' >> '$ZSHRC_FILE'"
+    fi
+
+    # 3. 配置别名和其他
+    log_info "添加 eza 和 bat 的别名..."
+    local aliases_block="# Custom Aliases added by script
+alias ls='eza --icons'
+alias la='eza -a --icons'
+alias ll='eza -al --git --icons'
+alias tree='eza --tree'
+alias cat='bat --paging=never'
+# End Custom Aliases"
+    # 避免重复添加
+    if ! run_as_user "grep -q '# Custom Aliases added by script' '$ZSHRC_FILE'"; then
+        run_as_user "echo -e '\n$aliases_block' >> '$ZSHRC_FILE'"
+    fi
+
+    # 4. 添加 Powerlevel10k 初始化代码（如果 p10k configure 没跑过）
+    local p10k_init_block="# To customize prompt, run \`p10k configure\` or edit ~/.p10k.zsh.
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
+     if ! run_as_user "grep -q 'source ~/.p10k.zsh' '$ZSHRC_FILE'"; then
+        run_as_user "echo -e '\n$p10k_init_block' >> '$ZSHRC_FILE'"
+     fi
+
+    log_success ".zshrc 文件配置完成。"
 }
+
+# _run_post_install_checks()
+# @description 提供最终用户指导
+_run_post_install_checks() {
+    display_header_section "后续步骤和建议" "box" 80 "${COLOR_CYAN}"
+
+    log_summary "Zsh 环境配置已完成！" "" "${COLOR_BRIGHT_GREEN}"
+    log_summary "--------------------------------------------------" "" "${COLOR_CYAN}"
+    log_summary "1. 更改默认 Shell:"
+    log_summary "   要将 Zsh 设为默认 Shell，请运行以下命令:"
+    log_summary "   chsh -s $(command -v zsh) $ORIGINAL_USER"
+    log_summary "   更改后需要重新登录才能生效。" "" "${COLOR_YELLOW}"
+    log_summary "--------------------------------------------------" "" "${COLOR_CYAN}"
+    log_summary "2. 应用配置:"
+    log_summary "   重新启动终端，或在当前终端运行 'source ~/.zshrc'。"
+    log_summary "--------------------------------------------------" "" "${COLOR_CYAN}"
+    log_summary "3. Powerlevel10k 个性化:"
+    log_summary "   首次启动 Zsh 时，Powerlevel10k 可能会自动运行配置向导。"
+    log_summary "   您也可以随时手动运行 'p10k configure' 来重新配置。" "" "${COLOR_YELLOW}"
+    log_summary "--------------------------------------------------" "" "${COLOR_CYAN}"
+    log_summary "4. 终端字体:"
+    log_summary "   请确保您的终端模拟器已设置为使用 'MesloLGS NF' 字体。"
+    log_summary "--------------------------------------------------" "" "${COLOR_CYAN}"
+}
+
 
 # ==============================================================================
 # 主函数
 # ==============================================================================
 
 main() {
-    display_header_section "Zsh Enhancement Setup" "box" 80
-    
-    # 阶段一：检查与决策
-    if ! _perform_checks_and_get_decision; then
-        log_warn "Setup cancelled by user during check phase."
-        return 0
+    display_header_section "Zsh & Oh My Zsh & P10k 自动配置" "box" 80
+    log_info "本模块将为用户 '$ORIGINAL_USER' 全面配置 Zsh 环境。"
+    log_notice "所有操作将在 '$ORIGINAL_HOME' 目录下进行。"
+
+    if ! _confirm_action "是否开始 Zsh 环境配置？" "y"; then
+        log_warn "用户取消操作。"
+        exit 0
     fi
 
-    # 阶段二：安装
-    _run_installation_phase
+    # 步骤 1: 检查环境
+    if _perform_checks; then
+        log_info "环境检查完毕，无需安装新组件，仅进行配置。"
+    else
+        # 步骤 2: 执行安装
+        if [[ -n "$INSTALL_MODE" ]]; then
+            _run_installation
+        fi
+    fi
 
-    # 阶段三：配置
-    _run_configuration_phase
+    # 步骤 3: 执行配置
+    _run_configuration
 
-    # 阶段四：验证与指导
-    _run_post_install_phase
+    # 步骤 4: 显示后续指导
+    _run_post_install_checks
 
-    log_success "Zsh enhancement module finished."
-    return 0
+    log_success "Zsh 环境配置模块执行完毕！"
 }
 
-# ==============================================================================
-# 脚本入口点
-# ==============================================================================
+# --- 脚本入口 ---
 main "$@"
-exit_script $?
+exit 0
