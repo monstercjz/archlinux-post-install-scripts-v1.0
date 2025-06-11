@@ -1,14 +1,8 @@
 #!/bin/bash
 
-# Source utility functions
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
-UTILS_PATH="$SCRIPT_DIR/utils.sh"
-if [ ! -f "$UTILS_PATH" ]; then
-    echo "错误：无法找到 utils.sh 脚本！路径: $UTILS_PATH"
-    exit 1
-fi
-# shellcheck source=./utils.sh
-source "$UTILS_PATH"
+# 依赖于调用脚本已 source 项目核心的 environment_setup.sh 和 utils.sh
+# 因此，项目通用的工具函数和 ORIGINAL_HOME, ORIGINAL_USER 等变量已可用。
+# 此脚本不再需要单独 source utils.sh
 
 # 定义需要检查的软件和插件
 declare -A SOFTWARE_CHECKS
@@ -28,7 +22,7 @@ SOFTWARE_CHECKS=(
     ["meslolgs-font"]="MesloLGS" # 字体模式
 )
 # 使用 USER_HOME 更新 oh-my-zsh 检查路径
-SOFTWARE_CHECKS["oh-my-zsh"]="${USER_HOME}/.oh-my-zsh"
+SOFTWARE_CHECKS["oh-my-zsh"]="${ORIGINAL_HOME}/.oh-my-zsh"
 
 # 定义必需的依赖项 (包管理器特定的名称)
 declare -A DEPENDENCIES
@@ -117,7 +111,7 @@ check_item() {
             fi
             ;;
         *)
-            log ERROR "未知的检查类型: $check_type for key $key"
+            log_error "未知的检查类型: $check_type for key $key"
             CHECK_RESULTS["$key"]="检查错误"
             return 1
             ;;
@@ -126,7 +120,7 @@ check_item() {
 
 # 执行所有软件和插件检查
 perform_checks() {
-    log STEP "开始检查系统环境和已安装的软件/插件..."
+    log_notice "开始检查系统环境和已安装的软件/插件..."
     local all_installed=true
     for key in "${!SOFTWARE_CHECKS[@]}"; do
         if ! check_item "$key"; then
@@ -145,7 +139,7 @@ perform_checks() {
     echo "----------------------------------------"
 
     if $all_installed && [[ ! " ${CHECK_RESULTS[*]} " =~ " 可能已安装 " ]]; then # 如果字体不是“可能已安装”
-        log INFO "所有必需的软件和插件似乎都已安装。"
+        log_info "所有必需的软件和插件似乎都已安装。"
         INSTALL_MODE="skip" # 默认跳过
         prompt_choice "您想如何操作？" \
             "强制全部重新安装" \
@@ -158,7 +152,7 @@ perform_checks() {
             3) INSTALL_MODE="cancel";;
         esac
     else
-        log INFO "部分软件/插件未安装或需要确认。"
+        log_info "部分软件/插件未安装或需要确认。"
          prompt_choice "请选择安装模式:" \
             "仅安装未安装的项" \
             "强制全部重新安装" \
@@ -172,18 +166,18 @@ perform_checks() {
     fi
 
     if [ "$INSTALL_MODE" == "cancel" ]; then
-        log INFO "用户选择取消安装。"
+        log_info "用户选择取消安装。"
         exit 0
     fi
 
-    log INFO "用户选择的安装模式: $INSTALL_MODE"
+    log_info "用户选择的安装模式: $INSTALL_MODE"
 }
 
 # 检查必需的依赖项
 # 参数: $1: 包管理器名称
 check_dependencies() {
     local pm="$1"
-    log STEP "检查必需的依赖项..."
+    log_notice "检查必需的依赖项..."
 
     local required_deps="$COMMON_DEPENDENCIES"
     local missing_deps=()
@@ -198,7 +192,7 @@ check_dependencies() {
         # brew 通常不需要显式安装 build tools
     esac
 
-    log INFO "需要的依赖项: $required_deps"
+    log_info "需要的依赖项: $required_deps"
 
     for dep in $required_deps; do
         if ! command_exists "$dep"; then
@@ -206,13 +200,13 @@ check_dependencies() {
             if [[ ("$pm" == "dnf" || "$pm" == "yum") && "$dep" == "@"* ]]; then
                  # 检查组包是否安装比较复杂，这里简化为只要命令不存在就认为需要安装
                  # 更精确的检查可以使用类似 `dnf group info` 的命令
-                 log WARN "依赖组 '$dep' 可能未完全安装 (检查命令 '$dep' 不存在)。"
+                 log_warn "依赖组 '$dep' 可能未完全安装 (检查命令 '$dep' 不存在)。"
                  missing_deps+=("$dep")
                  DEPENDENCY_RESULTS["$dep"]="未安装"
             elif [[ "$pm" == "apt" && "$dep" == "build-essential" ]]; then
                  # 检查 build-essential 是否安装
                  if ! dpkg -s build-essential &> /dev/null; then
-                    log WARN "依赖包 '$dep' 未安装。"
+                    log_warn "依赖包 '$dep' 未安装。"
                     missing_deps+=("$dep")
                     DEPENDENCY_RESULTS["$dep"]="未安装"
                  else
@@ -221,14 +215,14 @@ check_dependencies() {
             elif [[ "$pm" == "pacman" && "$dep" == "base-devel" ]]; then
                  # 检查 base-devel 组中的核心包，如 gcc make
                  if ! command_exists gcc || ! command_exists make; then
-                    log WARN "依赖组 '$dep' 可能未完全安装 (gcc 或 make 不存在)。"
+                    log_warn "依赖组 '$dep' 可能未完全安装 (gcc 或 make 不存在)。"
                     missing_deps+=("$dep")
                     DEPENDENCY_RESULTS["$dep"]="未安装"
                  else
                     DEPENDENCY_RESULTS["$dep"]="已安装"
                  fi
             else
-                log WARN "依赖命令 '$dep' 未安装。"
+                log_warn "依赖命令 '$dep' 未安装。"
                 missing_deps+=("$dep")
                 DEPENDENCY_RESULTS["$dep"]="未安装"
             fi
@@ -249,12 +243,12 @@ check_dependencies() {
 
 
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        log WARN "发现缺失的依赖项: ${missing_deps[*]}"
+        log_warn "发现缺失的依赖项: ${missing_deps[*]}"
         dep_install_cmd=$(get_install_command "$pm" "${missing_deps[@]}")
 
         if [ -z "$dep_install_cmd" ]; then
-             log ERROR "无法为您的包管理器 '$pm' 生成依赖安装命令。"
-             log INFO "请手动安装以下依赖项: ${missing_deps[*]}"
+             log_error "无法为您的包管理器 '$pm' 生成依赖安装命令。"
+             log_info "请手动安装以下依赖项: ${missing_deps[*]}"
              prompt_confirm "依赖项缺失，是否继续尝试安装主要软件？" || exit 1
              return 1 # 继续，但标记依赖不完整
         else
@@ -266,9 +260,9 @@ check_dependencies() {
             local choice=$?
             case $choice in
                 1)
-                    log INFO "尝试自动安装依赖项..."
+                    log_info "尝试自动安装依赖项..."
                     if run_sudo_command $dep_install_cmd; then
-                        log INFO "依赖项安装成功。"
+                        log_info "依赖项安装成功。"
                         # 重新检查一次确保安装成功
                         local still_missing=()
                         for dep in "${missing_deps[@]}"; do
@@ -287,36 +281,36 @@ check_dependencies() {
                             fi
                         done
                         if [ ${#still_missing[@]} -gt 0 ]; then
-                             log ERROR "自动安装后，以下依赖项仍然缺失: ${still_missing[*]}"
-                             log INFO "请尝试手动安装它们。"
+                             log_error "自动安装后，以下依赖项仍然缺失: ${still_missing[*]}"
+                             log_info "请尝试手动安装它们。"
                              exit 1
                         else
-                             log INFO "所有依赖项已满足。"
+                             log_info "所有依赖项已满足。"
                              return 0
                         fi
                     else
-                        log ERROR "依赖项自动安装失败！"
-                        log INFO "请尝试手动安装以下依赖项: ${missing_deps[*]}"
-                        log INFO "手动安装命令参考: $dep_install_cmd"
+                        log_error "依赖项自动安装失败！"
+                        log_info "请尝试手动安装以下依赖项: ${missing_deps[*]}"
+                        log_info "手动安装命令参考: $dep_install_cmd"
                         exit 1
                     fi
                     ;;
                 2)
-                    log INFO "请根据您的系统手动安装以下依赖项: ${missing_deps[*]}"
-                    log INFO "常见的安装命令:"
-                    log INFO "  Arch Linux: sudo pacman -S --needed base-devel ${missing_deps[*]}"
-                    log INFO "  Debian/Ubuntu: sudo apt update && sudo apt install -y build-essential ${missing_deps[*]}"
-                    log INFO "  Fedora: sudo dnf install -y @development-tools ${missing_deps[*]}"
-                    log INFO "  CentOS: sudo yum groupinstall -y 'Development Tools' && sudo yum install -y ${missing_deps[*]}"
-                    log INFO "  macOS (Homebrew): brew install ${missing_deps[*]}"
+                    log_info "请根据您的系统手动安装以下依赖项: ${missing_deps[*]}"
+                    log_info "常见的安装命令:"
+                    log_info "  Arch Linux: sudo pacman -S --needed base-devel ${missing_deps[*]}"
+                    log_info "  Debian/Ubuntu: sudo apt update && sudo apt install -y build-essential ${missing_deps[*]}"
+                    log_info "  Fedora: sudo dnf install -y @development-tools ${missing_deps[*]}"
+                    log_info "  CentOS: sudo yum groupinstall -y 'Development Tools' && sudo yum install -y ${missing_deps[*]}"
+                    log_info "  macOS (Homebrew): brew install ${missing_deps[*]}"
                     exit 0
                     ;;
                 3)
-                    log WARN "用户选择忽略依赖问题并继续。"
+                    log_warn "用户选择忽略依赖问题并继续。"
                     return 1 # 继续，但标记依赖不完整
                     ;;
                 4)
-                    log INFO "用户选择停止安装。"
+                    log_info "用户选择停止安装。"
                     exit 0
                     ;;
             esac
@@ -333,7 +327,7 @@ run_checks() {
 
     # 如果用户选择跳过安装，则直接返回
     if [ "$INSTALL_MODE" == "skip_install" ]; then
-        log INFO "跳过安装步骤，直接进入配置检查。"
+        log_info "跳过安装步骤，直接进入配置检查。"
         # 设置一个全局变量或返回特定值，让主脚本知道跳过安装
         export SKIP_INSTALLATION="true"
         return 0
@@ -344,11 +338,11 @@ run_checks() {
     local pm
     pm=$(detect_package_manager)
     if [ "$pm" == "unknown" ]; then
-        log ERROR "无法检测到支持的包管理器 (pacman, apt, dnf, brew, yum)。"
-        log INFO "请确保您的系统已安装其中之一。"
+        log_error "无法检测到支持的包管理器 (pacman, apt, dnf, brew, yum)。"
+        log_info "请确保您的系统已安装其中之一。"
         exit 1
     else
-        log INFO "检测到包管理器: $pm"
+        log_info "检测到包管理器: $pm"
         export PACKAGE_MANAGER="$pm" # 导出供其他模块使用
     fi
 
@@ -356,10 +350,10 @@ run_checks() {
     if ! check_dependencies "$pm"; then
         # check_dependencies 内部处理了退出或继续的逻辑
         # 如果返回 1，表示用户选择忽略依赖问题继续
-        log WARN "依赖项检查未完全通过，但用户选择继续。"
+        log_warn "依赖项检查未完全通过，但用户选择继续。"
     fi
 
-    log INFO "检查阶段完成。"
+    log_info "检查阶段完成。"
     # 将检查结果导出或写入临时文件供 install 模块使用
     # 为了简单起见，这里使用全局变量（需要主脚本 source 这个文件）
     # 或者，可以将 CHECK_RESULTS 写入一个临时文件
