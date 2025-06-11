@@ -202,21 +202,36 @@ _configure_from_template() {
     if ! _confirm_action "您确定要从模板文件覆盖 '$ZSHRC_FILE' 吗？" "n" "${COLOR_RED}"; then
         log_info "用户取消了从模板覆盖的操作。"; return 1
     fi
-
-    log_info "备份当前的 .zshrc 文件..."
-    # local backup_file="${ZSHRC_FILE}.bak_before_template_overwrite_$(date +%Y%m%d_%H%M%S)"
-    # run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
-    # log_success "已备份到: $backup_file"
-    # if ! run_as_user "source '${LIB_DIR}/utils.sh' && create_backup_and_cleanup '$ZSHRC_FILE' 'zshrc_template_overwrite'"; then
-    if ! create_backup_and_cleanup "$ZSHRC_FILE" "zshrc_template_overwrite"; then
-         log_error "Backup of .zshrc before template overwrite failed. Aborting."
-         return 1
+    # **新增：获取原始文件的权限**
+    local original_perms
+    if [ -f "$ZSHRC_FILE" ]; then
+        # stat 命令需要由能够读取文件的用户执行。root可以，但让用户自己执行更符合逻辑。
+        original_perms=$(run_as_user "stat -c %a '$ZSHRC_FILE'")
+        if [ -z "$original_perms" ]; then
+            log_warn "无法获取 '$ZSHRC_FILE' 的原始权限，将使用默认权限 644。"
+            original_perms="644"
+        else
+            log_notice "记录到 '$ZSHRC_FILE' 的原始权限为: $original_perms"
+        fi
+        log_info "备份当前的 .zshrc 文件..."
+        # local backup_file="${ZSHRC_FILE}.bak_before_template_overwrite_$(date +%Y%m%d_%H%M%S)"
+        # run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
+        # log_success "已备份到: $backup_file"
+        # if ! run_as_user "source '${LIB_DIR}/utils.sh' && create_backup_and_cleanup '$ZSHRC_FILE' 'zshrc_template_overwrite'"; then
+        if ! create_backup_and_cleanup "$ZSHRC_FILE" "zshrc_template_overwrite"; then
+            log_error "Backup of .zshrc before template overwrite failed. Aborting."
+            return 1
+        fi
+    else
+        log_error "当前 '$ZSHRC_FILE' 不存在，无需备份！"
     fi
 
     log_info "正在从 '$ZSHRC_TEMPLATE_PATH' 复制配置..."
     if cp -a "$ZSHRC_TEMPLATE_PATH" "$ZSHRC_FILE"; then
-        chown "$ORIGINAL_USER:$ORIGINAL_USER" "$ZSHRC_FILE"
-        log_success "成功使用模板文件覆盖 .zshrc。"
+        # **关键修正：复制后，立即 chown 和恢复/设置权限**
+        chown "$ORIGINAL_USER:$ORIGINAL_USER" "$ZSHRC_FILE" &&
+        run_as_user "chmod '$original_perms' '$ZSHRC_FILE'"
+        log_success "成功使用模板文件覆盖 .zshrc 并设置权限为 $original_perms。"
     else
         log_error "从模板文件复制到 '$ZSHRC_FILE' 失败！"
         return 1
@@ -248,7 +263,7 @@ _run_configuration() {
         log_warn "无法获取 '$ZSHRC_FILE' 的原始权限，将使用默认权限 644。"
         original_perms="644"
     else
-        log_info "记录到 '$ZSHRC_FILE' 的原始权限为: $original_perms"
+        log_notice "记录到 '$ZSHRC_FILE' 的原始权限为: $original_perms"
     fi
     # log_info "备份当前 .zshrc 文件..."; local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"; run_as_user "cp '$ZSHRC_FILE' '$backup_file'"; log_success "已备份到: $backup_file"
     # *** 新的、简洁的备份调用 ***
