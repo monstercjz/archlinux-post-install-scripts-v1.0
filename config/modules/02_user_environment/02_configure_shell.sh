@@ -338,12 +338,56 @@ EOF
     fi
 }
 
+
+# _configure_aliases()
+# @description 检查并配置常用别名和环境变量。
 _configure_aliases() {
     local target_file="$1"
-    log_info "检查并配置常用别名..."; local alias_header="# Custom Aliases added by script"
-    if ! run_as_user "grep -q \"$alias_header\" '$target_file'"; then run_as_user "echo -e '\n$alias_header' >> '$target_file'"; fi
-    if is_package_installed "eza" && ! run_as_user "grep -q \"alias ls='eza --icons'\" '$target_file'"; then log_notice "添加 eza 别名..."; run_as_user "echo -e \"alias ls='eza --icons'\\nalias la='eza -a --icons'\\nalias ll='eza -al --git --icons'\\nalias tree='eza --tree'\" >> '$target_file'"; fi
-    if is_package_installed "bat" && ! run_as_user "grep -q \"alias cat='bat --paging=never'\" '$target_file'"; then log_notice "添加 bat 别名..."; run_as_user "echo -e \"alias cat='bat --paging=never'\" >> '$target_file'"; fi
+    log_info "检查并配置常用别名和环境变量..."
+    
+    # --- 为 eza 添加别名 ---
+    if is_package_installed "eza"; then
+        if ! run_as_user "grep -q \"# eza aliases\" '$target_file'"; then
+            log_notice "添加 eza 别名..."
+            local eza_aliases_block="# eza aliases
+alias ls='eza --icons'
+alias l='eza -l'
+alias la='eza -a --icons'
+alias ll='eza -al --git --icons'
+alias tree='eza --tree'"
+            local escaped_block; escaped_block=$(printf "%q" "$eza_aliases_block")
+            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
+        else
+            log_info "eza 别名配置已存在，跳过。"
+        fi
+    fi
+
+    # --- 为 bat 添加别名和主题环境变量 ---
+    if is_package_installed "bat"; then
+        if ! run_as_user "grep -q \"# bat alias and theme\" '$target_file'"; then
+            log_notice "添加 bat 别名和主题..."
+            local bat_config_block="# bat alias and theme
+alias cat='bat --paging=never'
+export BAT_THEME=\"TwoDark\""
+            local escaped_block; escaped_block=$(printf "%q" "$bat_config_block")
+            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
+        else
+            log_info "bat 配置已存在，跳过。"
+        fi
+    fi
+
+    # --- 为 fzf 添加默认选项环境变量 ---
+    if is_package_installed "fzf"; then
+        if ! run_as_user "grep -q \"# fzf default options\" '$target_file'"; then
+            log_notice "添加 fzf 默认选项..."
+            local fzf_opts_block="# fzf default options
+export FZF_DEFAULT_OPTS=\"--height 40% --layout=reverse --border\""
+            local escaped_block; escaped_block=$(printf "%q" "$fzf_opts_block")
+            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
+        else
+            log_info "fzf 默认选项配置已存在，跳过。"
+        fi
+    fi
 }
 
 _configure_p10k_init() {
