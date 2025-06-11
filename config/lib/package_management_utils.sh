@@ -289,6 +289,7 @@ install_yay_pkg() {
     # yay 在需要时会自己调用 sudo 获取 root 权限。
     # 我们传递 --noconfirm 给 yay，它会将其传递给底层的 pacman。
     log_notice "Running 'yay' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    refresh_pacman_database
     local yay_output
     # 使用新的通用函数
     if yay_output=$(run_as_user "yay -S --noconfirm --needed $pkgs_to_install" 2>&1); then
@@ -332,6 +333,7 @@ install_paru_pkg() {
 
     # **关键安全修复：必须作为普通用户运行 paru**
     log_notice "Running 'paru' as non-root user '$ORIGINAL_USER'. This is required for safety."
+    refresh_pacman_database
     local paru_output
     if paru_output=$(run_as_user "paru -S --noconfirm --needed $pkgs_to_install" 2>&1); then
         log_success "AUR packages installed successfully using paru: '$pkgs_to_install'."

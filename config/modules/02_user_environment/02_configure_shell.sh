@@ -214,7 +214,7 @@ _configure_from_template() {
     fi
 
     log_info "正在从 '$ZSHRC_TEMPLATE_PATH' 复制配置..."
-    if cp "$ZSHRC_TEMPLATE_PATH" "$ZSHRC_FILE"; then
+    if cp -a "$ZSHRC_TEMPLATE_PATH" "$ZSHRC_FILE"; then
         chown "$ORIGINAL_USER:$ORIGINAL_USER" "$ZSHRC_FILE"
         log_success "成功使用模板文件覆盖 .zshrc。"
     else
@@ -233,11 +233,22 @@ _configure_from_template() {
 _run_configuration() {
     display_header_section "逐步配置 .zshrc 文件" "box" 80
     
-    # --- 步骤 1: 前置检查和备份 ---
+    # --- 步骤 1: 前置检查、获取原始权限、备份 ---
     if [ ! -f "$ZSHRC_FILE" ]; then
-        if [ ! -d "${ORIGINAL_HOME}/.oh-my-zsh/templates" ]; then log_error "Oh My Zsh 模板目录不存在，无法创建 .zshrc。请先确保 Oh My Zsh 已安装。"; return 1; fi
-        log_info "$ZSHRC_FILE 不存在，将从模板创建。"
+        if [ ! -d "${ORIGINAL_HOME}/.oh-my-zsh/templates" ]; then log_error "Oh My Zsh 模板目录不存在，无法创建 .zshrc。"; return 1; fi
+        log_info "$ZSHRC_FILE 不存在，将从模板创建。";
         run_as_user "cp '${ORIGINAL_HOME}/.oh-my-zsh/templates/zshrc.zsh-template' '$ZSHRC_FILE'" || { log_error "创建 .zshrc 失败！"; return 1; }
+    fi
+
+    # **新增：获取原始文件的权限**
+    local original_perms
+    # stat 命令需要由能够读取文件的用户执行。root可以，但让用户自己执行更符合逻辑。
+    original_perms=$(run_as_user "stat -c %a '$ZSHRC_FILE'")
+    if [ -z "$original_perms" ]; then
+        log_warn "无法获取 '$ZSHRC_FILE' 的原始权限，将使用默认权限 644。"
+        original_perms="644"
+    else
+        log_info "记录到 '$ZSHRC_FILE' 的原始权限为: $original_perms"
     fi
     # log_info "备份当前 .zshrc 文件..."; local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"; run_as_user "cp '$ZSHRC_FILE' '$backup_file'"; log_success "已备份到: $backup_file"
     # *** 新的、简洁的备份调用 ***
@@ -249,6 +260,7 @@ _run_configuration() {
          log_error "Backup of .zshrc failed. Aborting configuration."
          return 1
     fi
+
     # --- 步骤 2: 创建一个临时工作副本 ---
     local temp_zshrc; temp_zshrc=$(run_as_user "mktemp")
     if [ -z "$temp_zshrc" ]; then log_error "无法为 .zshrc 创建临时工作文件！"; return 1; fi
@@ -263,10 +275,21 @@ _run_configuration() {
     if ! _configure_aliases "$temp_zshrc"; then config_ok=false; fi
     if ! _configure_p10k_init "$temp_zshrc"; then config_ok=false; fi
 
-    # --- 步骤 4: 如果所有修改都成功，则替换原始文件 ---
+    # --- 步骤 4: 如果所有修改都成功，则“提交”更改并恢复权限 ---
     if $config_ok; then
         log_info "所有配置已成功应用到临时文件，现在替换原始 .zshrc ..."
-        if run_as_user "mv '$temp_zshrc' '$ZSHRC_FILE'"; then log_success "成功更新 .zshrc 文件。"; else log_error "最终替换 .zshrc 文件失败！原始文件未被修改。临时文件保存在: $temp_zshrc"; return 1; fi
+        
+        # **关键修正：在移动文件后，恢复记录下来的原始权限**
+        if run_as_user "
+            mv '$temp_zshrc' '$ZSHRC_FILE' &&
+            chmod '$original_perms' '$ZSHRC_FILE'
+        "; then
+            log_success "成功更新 .zshrc 文件并恢复原始权限为 $original_perms。"
+        else
+            log_error "最终替换或恢复 .zshrc 文件权限失败！"
+            log_error "原始文件可能已被一个权限不正确的文件替换。请检查 '$ZSHRC_FILE'。"
+            return 1
+        fi
     else
         log_error "在修改 .zshrc 的过程中发生错误。原始文件未被修改。"; run_as_user "rm '$temp_zshrc'"; return 1
     fi
