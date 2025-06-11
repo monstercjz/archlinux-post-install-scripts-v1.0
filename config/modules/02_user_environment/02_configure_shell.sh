@@ -2,7 +2,7 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/modules/03_user_environment/01_configure_shell.sh
-# 版本: 1.1.0 (整合优化建议，提升健壮性和用户交互)
+# 版本: 1.2.0 (最终整合版 - 采用安全事务模型)
 # 日期: 2025-06-12
 # 描述: 配置 Zsh Shell 环境，包括 Oh My Zsh, Powerlevel10k 主题及常用插件。
 #       此模块整合了一个独立的 Zsh 配置项目，并将其完全适配到当前框架中。
@@ -12,13 +12,15 @@
 # - 安装 Zsh, Oh My Zsh, fzf, bat, eza 等核心工具。
 # - 安装 Powerlevel10k 推荐字体 (MesloLGS NF)。
 # - 安装 zsh-syntax-highlighting, zsh-autosuggestions, fzf-tab 等插件。
-# - 自动配置 .zshrc 文件，动态启用已安装的主题和插件，并添加常用别名。
+# - 使用安全的文件更新策略，自动配置 .zshrc 文件。
 # - 提供详细的安装后验证和用户指导。
 # ------------------------------------------------------------------------------
-# 版本 1.1.0 优化内容:
-# 1.  **细化交互**: 当所有组件已安装时，提供“强制重装”、“仅配置”、“取消”选项。
-# 2.  **动态配置**: .zshrc 中的插件列表会根据实际安装成功的组件动态生成，避免错误。
-# 3.  **优雅的错误处理**: Oh My Zsh 安装失败时，会跳过相关插件/主题安装，而不是直接退出。
+# 版本 1.2.0 优化内容:
+# - **安全事务模型**: 所有对 .zshrc 的修改都在一个临时副本上进行，成功后才替换原始文件，杜绝文件丢失风险。
+# - **职责分离**: 将庞大的配置函数拆分为多个独立的、职责单一的小函数。
+# - **细化交互**: 当所有组件已安装时，提供“强制重装”、“仅配置”、“取消”选项。
+# - **动态配置**: .zshrc 中的插件列表会根据实际安装成功的组件动态生成。
+# - **优雅的错误处理**: Oh My Zsh 安装失败时，会跳过相关插件/主题安装，而不是直接退出。
 # ==============================================================================
 
 # --- 脚本顶部引导块 START ---
@@ -48,7 +50,6 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 全局变量和定义 (模块作用域)
 # ==============================================================================
 ZSHRC_FILE="${ORIGINAL_HOME}/.zshrc"
-P10K_CONFIG_FILE="${ORIGINAL_HOME}/.p10k.zsh"
 ZSH_CUSTOM_DIR="${ORIGINAL_HOME}/.oh-my-zsh/custom"
 
 declare -A SOFTWARE_TO_CHECK=(
@@ -68,16 +69,16 @@ INSTALL_MODE="" # missing, force, skip
 
 
 # ==============================================================================
-# 辅助函数 (移植并适配)
+# 辅助检查函数
 # ==============================================================================
 
-_is_omz_plugin_installed() { [ -d "${ZSH_CUSTOM_DIR}/plugins/${1}" ] && [ -n "$(ls -A "${ZSH_CUSTOM_DIR}/plugins/${1}")" ]; }
+_is_omz_plugin_installed() { [ -d "${ZSH_CUSTOM_DIR}/plugins/${1}" ] && [ -n "$(ls -A "${ZSH_CUSTOM_DIR}/plugins/${1}" 2>/dev/null)" ]; }
 _is_p10k_theme_installed() { [ -d "${ZSH_CUSTOM_DIR}/themes/powerlevel10k" ] && [ -f "${ZSH_CUSTOM_DIR}/themes/powerlevel10k/powerlevel10k.zsh-theme" ]; }
 _is_font_installed() { find "${ORIGINAL_HOME}/.local/share/fonts" /usr/local/share/fonts /usr/share/fonts -iname "*${1}*" -print -quit 2>/dev/null | grep -q .; }
 
 
 # ==============================================================================
-# 核心功能函数 (移植并重构)
+# 核心业务逻辑函数
 # ==============================================================================
 
 # _perform_checks()
@@ -89,11 +90,11 @@ _perform_checks() {
     local all_installed=true
     for key in "${!SOFTWARE_TO_CHECK[@]}"; do is_package_installed "${SOFTWARE_TO_CHECK[$key]}" && CHECK_RESULTS[$key]="已安装" || { CHECK_RESULTS[$key]="未安装"; all_installed=false; }; done
     [ -d "${COMPONENTS_TO_CHECK['oh-my-zsh']}" ] && CHECK_RESULTS["oh-my-zsh"]="已安装" || { CHECK_RESULTS["oh-my-zsh"]="未安装"; all_installed=false; }
-    _is_omz_plugin_installed "${COMPONENTS_TO_CHECK['zsh-syntax-highlighting']}" && CHECK_RESULTS["zsh-syntax-highlighting"]="已安装" || { CHECK_RESULTS["zsh-syntax-highlighting"]="未安装"; all_installed=false; }
-    _is_omz_plugin_installed "${COMPONENTS_TO_CHECK['zsh-autosuggestions']}" && CHECK_RESULTS["zsh-autosuggestions"]="已安装" || { CHECK_RESULTS["zsh-autosuggestions"]="未安装"; all_installed=false; }
-    _is_omz_plugin_installed "${COMPONENTS_TO_CHECK['fzf-tab']}" && CHECK_RESULTS["fzf-tab"]="已安装" || { CHECK_RESULTS["fzf-tab"]="未安装"; all_installed=false; }
+    _is_omz_plugin_installed "zsh-syntax-highlighting" && CHECK_RESULTS["zsh-syntax-highlighting"]="已安装" || { CHECK_RESULTS["zsh-syntax-highlighting"]="未安装"; all_installed=false; }
+    _is_omz_plugin_installed "zsh-autosuggestions" && CHECK_RESULTS["zsh-autosuggestions"]="已安装" || { CHECK_RESULTS["zsh-autosuggestions"]="未安装"; all_installed=false; }
+    _is_omz_plugin_installed "fzf-tab" && CHECK_RESULTS["fzf-tab"]="已安装" || { CHECK_RESULTS["fzf-tab"]="未安装"; all_installed=false; }
     _is_p10k_theme_installed && CHECK_RESULTS["powerlevel10k"]="已安装" || { CHECK_RESULTS["powerlevel10k"]="未安装"; all_installed=false; }
-    _is_font_installed "${COMPONENTS_TO_CHECK['meslolgs-font']}" && CHECK_RESULTS["meslolgs-font"]="可能已安装" || { CHECK_RESULTS["meslolgs-font"]="未安装"; all_installed=false; }
+    _is_font_installed "MesloLGS" && CHECK_RESULTS["meslolgs-font"]="可能已安装" || { CHECK_RESULTS["meslolgs-font"]="未安装"; all_installed=false; }
 
     log_info "检查结果汇总:"; echo "--------------------------------------------------"; for key in "${!SOFTWARE_TO_CHECK[@]}" "${!COMPONENTS_TO_CHECK[@]}"; do printf "  %-30s: %s\n" "$key" "${CHECK_RESULTS[$key]}"; done; echo "--------------------------------------------------"
 
@@ -102,8 +103,8 @@ _perform_checks() {
         while true; do
             read -rp "$(echo -e "${COLOR_YELLOW}请选择操作: [1] 强制重装 [2] 仅配置 [c] 取消: ${COLOR_RESET}")" choice; echo
             case "$choice" in
-                1) INSTALL_MODE="force"; return 1 ;; # 需要安装
-                2) INSTALL_MODE="skip"; return 0 ;; # 跳过安装
+                1) INSTALL_MODE="force"; return 1 ;;
+                2) INSTALL_MODE="skip"; return 0 ;;
                 c|C) log_info "用户取消操作。"; exit 0 ;;
                 *) log_warn "无效输入。" ;;
             esac
@@ -184,34 +185,179 @@ _run_installation() {
     fi
 }
 
+
+# ==============================================================================
+# .zshrc 配置协调函数 (安全事务模型)
+# ==============================================================================
+
 # _run_configuration()
-# @description 修改 .zshrc 文件以启用主题和插件
+# @description 主协调函数，使用安全的文件更新策略来调用所有 .zshrc 的配置任务。
 _run_configuration() {
     display_header_section "配置 .zshrc 文件" "box" 80
-    if [ ! -f "$ZSHRC_FILE" ]; then log_info "$ZSHRC_FILE 不存在，将从模板创建。"; run_as_user "cp '${ORIGINAL_HOME}/.oh-my-zsh/templates/zshrc.zsh-template' '$ZSHRC_FILE'"; fi
+    
+    # --- 步骤 1: 前置检查和备份 ---
+    if [ ! -f "$ZSHRC_FILE" ]; then
+        if [ ! -d "${ORIGINAL_HOME}/.oh-my-zsh/templates" ]; then log_error "Oh My Zsh 模板目录不存在，无法创建 .zshrc。请先确保 Oh My Zsh 已安装。"; return 1; fi
+        log_info "$ZSHRC_FILE 不存在，将从模板创建。"
+        run_as_user "cp '${ORIGINAL_HOME}/.oh-my-zsh/templates/zshrc.zsh-template' '$ZSHRC_FILE'" || { log_error "创建 .zshrc 失败！"; return 1; }
+    fi
     log_info "备份当前 .zshrc 文件..."; local backup_file="${ZSHRC_FILE}.bak.$(date +%Y%m%d_%H%M%S)"; run_as_user "cp '$ZSHRC_FILE' '$backup_file'"; log_success "已备份到: $backup_file"
 
-    log_info "设置 ZSH_THEME 为 'powerlevel10k/powerlevel10k'..."; run_as_user "sed -i 's|^\\s*ZSH_THEME=.*|ZSH_THEME=\"powerlevel10k/powerlevel10k\"|' '$ZSHRC_FILE'"
+    # --- 步骤 2: 创建一个临时工作副本 ---
+    local temp_zshrc; temp_zshrc=$(run_as_user "mktemp")
+    if [ -z "$temp_zshrc" ]; then log_error "无法为 .zshrc 创建临时工作文件！"; return 1; fi
+    run_as_user "cp '$ZSHRC_FILE' '$temp_zshrc'"; log_info "创建临时工作文件: $temp_zshrc"
 
-    local desired_plugins=("git"); log_info "根据实际安装情况动态构建插件列表..."
+    # --- 步骤 3: 在临时副本上执行所有修改 ---
+    local config_ok=true
+    if ! _configure_p10k_instant_prompt "$temp_zshrc"; then config_ok=false; fi
+    if ! _configure_zsh_theme "$temp_zshrc"; then config_ok=false; fi
+    if ! _configure_plugins_line "$temp_zshrc"; then config_ok=false; fi
+    if ! _configure_fzf_tab "$temp_zshrc"; then config_ok=false; fi
+    if ! _configure_aliases "$temp_zshrc"; then config_ok=false; fi
+    if ! _configure_p10k_init "$temp_zshrc"; then config_ok=false; fi
+
+    # --- 步骤 4: 如果所有修改都成功，则替换原始文件 ---
+    if $config_ok; then
+        log_info "所有配置已成功应用到临时文件，现在替换原始 .zshrc ..."
+        if run_as_user "mv '$temp_zshrc' '$ZSHRC_FILE'"; then log_success "成功更新 .zshrc 文件。"; else log_error "最终替换 .zshrc 文件失败！原始文件未被修改。临时文件保存在: $temp_zshrc"; return 1; fi
+    else
+        log_error "在修改 .zshrc 的过程中发生错误。原始文件未被修改。"; run_as_user "rm '$temp_zshrc'"; return 1
+    fi
+}
+
+
+# ==============================================================================
+# .zshrc 具体配置函数 (接收临时文件路径作为参数)
+# ==============================================================================
+
+# _configure_p10k_instant_prompt()
+_configure_p10k_instant_prompt() {
+    local target_file="$1"
+    log_info "检查并配置 Powerlevel10k Instant Prompt..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
+
+    if ! run_as_user "grep -q 'p10k-instant-prompt' '$target_file'"; then
+        log_notice "在 .zshrc 顶部添加 Instant Prompt 配置..."
+        
+        # 步骤1 (root): 创建包含字面内容的临时文件
+        local p10k_block_file; p10k_block_file=$(mktemp)
+        cat > "$p10k_block_file" <<'EOF'
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+EOF
+        
+        # 步骤2 (root): 更改临时文件的所有权给目标用户
+        chown "$ORIGINAL_USER:$ORIGINAL_USER" "$p10k_block_file"
+
+        # 步骤3 (user): 执行文件拼接和移动操作
+        if run_as_user "
+            temp_combined_file=\$(mktemp)
+            # 用户现在可以读取 p10k_block_file 和 target_file
+            cat '$p10k_block_file' '$target_file' > \"\$temp_combined_file\"
+            mv \"\$temp_combined_file\" '$target_file'
+            # 清理 p10k block 临时文件
+            rm '$p10k_block_file'
+        "; then
+            log_success "Instant Prompt 配置添加成功。"
+        else
+            log_error "添加 Instant Prompt 配置失败！"
+            # 如果失败，root 清理 p10k block 临时文件
+            rm -f "$p10k_block_file"
+            return 1
+        fi
+    else
+      log_info "Instant Prompt 配置已存在，跳过。"
+    fi
+}
+
+
+
+_configure_zsh_theme() {
+    local target_file="$1"
+    log_info "检查并配置 Zsh 主题..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
+    run_as_user "sed -i 's|^\\s*ZSH_THEME=.*|ZSH_THEME=\"powerlevel10k/powerlevel10k\"|' '$target_file'"
+}
+
+_configure_plugins_line() {
+    local target_file="$1"
+    log_info "检查并配置 Oh My Zsh 插件列表..."; local desired_plugins=("git")
     if _is_omz_plugin_installed "zsh-syntax-highlighting"; then desired_plugins+=("zsh-syntax-highlighting"); fi
     if _is_omz_plugin_installed "zsh-autosuggestions"; then desired_plugins+=("zsh-autosuggestions"); fi
     if is_package_installed "fzf"; then desired_plugins+=("fzf"); fi
     if _is_omz_plugin_installed "fzf-tab"; then desired_plugins+=("fzf-tab"); fi
-    log_info "最终将启用的插件: ${desired_plugins[*]}"; local plugins_str="plugins=(${desired_plugins[*]})"
-    if run_as_user "grep -q '^\\s*plugins=(' '$ZSHRC_FILE'"; then run_as_user "sed -i 's|^\\s*plugins=(.*)|$plugins_str|' '$ZSHRC_FILE'"; else run_as_user "echo -e '\n$plugins_str' >> '$ZSHRC_FILE'"; fi
-
-    log_info "添加 eza 和 bat 的别名..."; local aliases_block="# Custom Aliases added by script\nalias ls='eza --icons'\nalias la='eza -a --icons'\nalias ll='eza -al --git --icons'\nalias tree='eza --tree'\nalias cat='bat --paging=never'\n# End Custom Aliases"
-    if ! run_as_user "grep -q '# Custom Aliases added by script' '$ZSHRC_FILE'"; then run_as_user "echo -e '\n$aliases_block' >> '$ZSHRC_FILE'"; fi
-    
-    local p10k_init_block="# To customize prompt, run \`p10k configure\` or edit ~/.p10k.zsh.\n[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
-    if ! run_as_user "grep -q 'source ~/.p10k.zsh' '$ZSHRC_FILE'"; then run_as_user "echo -e '\n$p10k_init_block' >> '$ZSHRC_FILE'"; fi
-
-    log_success ".zshrc 文件配置完成。"
+    log_info "将启用的插件: ${desired_plugins[*]}"; local plugins_str="plugins=(${desired_plugins[*]})"
+    if run_as_user "grep -q '^\\s*plugins=(' '$target_file'"; then
+        run_as_user "sed -i 's|^\\s*plugins=(.*)|$plugins_str|' '$target_file'"
+    else
+        run_as_user "echo -e '\n$plugins_str' >> '$target_file'"
+    fi
 }
 
-# _run_post_install_checks()
-# @description 提供最终用户指导
+_configure_fzf_tab() {
+    local target_file="$1"
+    log_info "检查并配置 fzf-tab 高级选项..."; if ! _is_omz_plugin_installed "fzf-tab"; then log_info "fzf-tab 未安装，跳过。"; return 0; fi
+
+    if ! run_as_user "grep -q 'fzf-tab:complete' '$target_file'"; then
+        log_notice "添加 fzf-tab 的高级 zstyle 配置..."
+
+        # 步骤1 (root): 创建包含字面内容的临时文件
+        local fzf_block_file; fzf_block_file=$(mktemp)
+        cat > "$fzf_block_file" <<'EOF'
+
+# fzf-tab configuration (added by script)
+zstyle ':fzf-tab:*' fzf-flags --height=60% --border --color=bg+:#363a4f,bg:#24273a,spinner:#f4dbd6,hl:#ed8796 \
+    --color=fg:#cad3f5,header:#ed8796,info:#c6a0f6,pointer:#f4dbd6 \
+    --color=marker:#f4dbd6,fg+:#cad3f5,prompt:#c6a0f6,hl+:#ed8796
+
+zstyle ':fzf-tab:complete:*:*' fzf-preview '
+  (bat --color=always --line-range :500 ${realpath} 2>/dev/null ||
+   eza -al --git --icons ${realpath} 2>/dev/null ||
+   ls -lAh --color=always ${realpath}) 2>/dev/null'
+# End fzf-tab configuration
+EOF
+
+        # 步骤2 (root): 更改临时文件的所有权
+        chown "$ORIGINAL_USER:$ORIGINAL_USER" "$fzf_block_file"
+
+        # 步骤3 (user): 执行追加和清理
+        if run_as_user "
+            cat '$fzf_block_file' >> '$target_file'
+            rm '$fzf_block_file'
+        "; then
+            log_success "fzf-tab 高级配置添加成功。"
+        else
+            log_error "添加 fzf-tab 高级配置失败！"
+            rm -f "$fzf_block_file"
+            return 1
+        fi
+    else
+      log_info "fzf-tab 高级配置已存在，跳过。"
+    fi
+}
+
+_configure_aliases() {
+    local target_file="$1"
+    log_info "检查并配置常用别名..."; local alias_header="# Custom Aliases added by script"
+    if ! run_as_user "grep -q \"$alias_header\" '$target_file'"; then run_as_user "echo -e '\n$alias_header' >> '$target_file'"; fi
+    if is_package_installed "eza" && ! run_as_user "grep -q \"alias ls='eza --icons'\" '$target_file'"; then log_notice "添加 eza 别名..."; run_as_user "echo -e \"alias ls='eza --icons'\\nalias la='eza -a --icons'\\nalias ll='eza -al --git --icons'\\nalias tree='eza --tree'\" >> '$target_file'"; fi
+    if is_package_installed "bat" && ! run_as_user "grep -q \"alias cat='bat --paging=never'\" '$target_file'"; then log_notice "添加 bat 别名..."; run_as_user "echo -e \"alias cat='bat --paging=never'\" >> '$target_file'"; fi
+}
+
+_configure_p10k_init() {
+    local target_file="$1"
+    log_info "检查并配置 Powerlevel10k 初始化脚本..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
+    local p10k_init_block="# To customize prompt, run \`p10k configure\` or edit ~/.p10k.zsh.\n[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
+    if ! run_as_user "grep -q 'source ~/.p10k.zsh' '$target_file'"; then run_as_user "echo -e '\n$p10k_init_block' >> '$target_file'"; fi
+}
+
+
+# ==============================================================================
+# 安装后指导函数
+# ==============================================================================
+
 _run_post_install_checks() {
     display_header_section "后续步骤和建议" "box" 80 "${COLOR_CYAN}"
     log_summary "Zsh 环境配置已完成！" "" "${COLOR_BRIGHT_GREEN}"
@@ -244,7 +390,6 @@ main() {
         if [[ "$INSTALL_MODE" == "skip" ]]; then
             log_info "环境检查完毕，跳过安装步骤，仅进行配置。"
         else
-            # 这理论上不会发生，但作为保障
             log_info "环境检查完毕，所有组件已安装。将进行配置。"
         fi
     else
@@ -253,7 +398,11 @@ main() {
         fi
     fi
 
-    _run_configuration
+    if ! _run_configuration; then
+        # 如果配置失败，主协调函数会返回1，我们在这里捕获并退出
+        handle_error "Zsh 配置过程中发生严重错误，已中止。" 1
+    fi
+    
     _run_post_install_checks
 
     log_success "Zsh 环境配置模块执行完毕！"

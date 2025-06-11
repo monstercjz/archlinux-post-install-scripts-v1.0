@@ -1122,28 +1122,26 @@ _confirm_action() {
 # @returns: 返回被执行命令的退出码。
 # @depends: sudo (系统命令), log_* (from utils.sh)
 run_as_user() {
-    if [ -z "${ORIGINAL_USER:-}" ]; then
-        log_error "run_as_user: ORIGINAL_USER variable is not set. Cannot switch user."
-        return 1
-    fi
-    if [ "$#" -eq 0 ]; then
-        log_warn "run_as_user: No command provided to execute."
-        return 0
+    # ...
+    local cmd_string="$*"
+    # 检查是否是 grep -q 命令
+    local quiet_mode=false
+    if [[ "$cmd_string" == "grep -q "* ]]; then
+        quiet_mode=true
     fi
 
-    # 将所有参数作为一个完整的命令字符串来执行
-    local cmd_string="$*"
+    if ! $quiet_mode; then
+        log_debug "Executing command as user '$ORIGINAL_USER': $cmd_string"
+    fi
     
-    log_debug "Executing command as user '$ORIGINAL_USER': $cmd_string"
-    
-    # 使用 sudo -u 来切换用户并执行命令。
-    # bash -c 使得我们可以传递一个复杂的、包含管道或重定向的命令字符串。
-    # 将命令字符串作为单个参数传递给 bash -c 是最安全的方式。
     if sudo -u "$ORIGINAL_USER" bash -c "$cmd_string"; then
         return 0
     else
         local exit_code=$?
-        log_warn "Command executed as '$ORIGINAL_USER' failed with exit code $exit_code: $cmd_string"
+        # 如果不是静默模式，或者退出码不是1（grep未找到），则打印警告
+        if ! $quiet_mode || [[ "$exit_code" -ne 1 ]]; then
+            log_warn "Command executed as '$ORIGINAL_USER' failed with exit code $exit_code: $cmd_string"
+        fi
         return $exit_code
     fi
 }
