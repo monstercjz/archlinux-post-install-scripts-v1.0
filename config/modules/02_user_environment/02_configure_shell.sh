@@ -252,7 +252,7 @@ _run_configuration() {
     # --- 步骤 2: 创建一个临时工作副本 ---
     local temp_zshrc; temp_zshrc=$(run_as_user "mktemp")
     if [ -z "$temp_zshrc" ]; then log_error "无法为 .zshrc 创建临时工作文件！"; return 1; fi
-    run_as_user "cp '$ZSHRC_FILE' '$temp_zshrc'"; log_info "创建临时工作文件: $temp_zshrc"
+    run_as_user "cp -p '$ZSHRC_FILE' '$temp_zshrc'"; log_info "创建临时工作文件: $temp_zshrc"
 
     # --- 步骤 3: 在临时副本上执行所有修改 ---
     local config_ok=true
