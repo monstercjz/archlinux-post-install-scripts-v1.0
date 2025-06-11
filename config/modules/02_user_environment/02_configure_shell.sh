@@ -2,10 +2,10 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/modules/03_user_environment/01_configure_shell.sh
-# 版本: 1.2.0 (最终整合版 - 采用安全事务模型)
+# 版本: 1.3.0 (新增从模板文件快速配置的功能)
 # 日期: 2025-06-12
 # 描述: 配置 Zsh Shell 环境，包括 Oh My Zsh, Powerlevel10k 主题及常用插件。
-#       此模块整合了一个独立的 Zsh 配置项目，并将其完全适配到当前框架中。
+#       提供“逐步配置”和“从模板快速配置”两种模式。
 # ------------------------------------------------------------------------------
 # 核心功能:
 # - 检查系统环境和 Zsh 相关组件的安装状态。
@@ -15,7 +15,8 @@
 # - 使用安全的文件更新策略，自动配置 .zshrc 文件。
 # - 提供详细的安装后验证和用户指导。
 # ------------------------------------------------------------------------------
-# 版本 1.2.0 优化内容:
+# 版本 1.3.0 优化内容:
+# - **新增配置模式**: 用户可以选择“逐步、安全地配置”或“从预设模板文件快速覆盖”。
 # - **安全事务模型**: 所有对 .zshrc 的修改都在一个临时副本上进行，成功后才替换原始文件，杜绝文件丢失风险。
 # - **职责分离**: 将庞大的配置函数拆分为多个独立的、职责单一的小函数。
 # - **细化交互**: 当所有组件已安装时，提供“强制重装”、“仅配置”、“取消”选项。
@@ -51,6 +52,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # ==============================================================================
 ZSHRC_FILE="${ORIGINAL_HOME}/.zshrc"
 ZSH_CUSTOM_DIR="${ORIGINAL_HOME}/.oh-my-zsh/custom"
+ZSHRC_TEMPLATE_PATH="${ASSETS_DIR}/shell/zshrc.template"
 
 declare -A SOFTWARE_TO_CHECK=(
     ["zsh"]="zsh" ["fzf"]="fzf" ["bat"]="bat" ["eza"]="eza"
@@ -185,6 +187,37 @@ _run_installation() {
     fi
 }
 
+# _configure_from_template()
+# @description 从模板文件快速配置 .zshrc
+_configure_from_template() {
+    display_header_section "从模板快速配置 .zshrc" "box" 80
+    
+    if [ ! -f "$ZSHRC_TEMPLATE_PATH" ]; then
+        log_error "模板文件未找到: $ZSHRC_TEMPLATE_PATH"
+        log_error "无法进行快速配置。请检查项目文件是否完整。"
+        return 1
+    fi
+
+    log_warn "此操作将完全覆盖您现有的 .zshrc 文件！"
+    if ! _confirm_action "您确定要从模板文件覆盖 '$ZSHRC_FILE' 吗？" "n" "${COLOR_RED}"; then
+        log_info "用户取消了从模板覆盖的操作。"; return 1
+    fi
+
+    log_info "备份当前的 .zshrc 文件..."
+    local backup_file="${ZSHRC_FILE}.bak_before_template_overwrite_$(date +%Y%m%d_%H%M%S)"
+    run_as_user "cp '$ZSHRC_FILE' '$backup_file'"
+    log_success "已备份到: $backup_file"
+
+    log_info "正在从 '$ZSHRC_TEMPLATE_PATH' 复制配置..."
+    if cp "$ZSHRC_TEMPLATE_PATH" "$ZSHRC_FILE"; then
+        chown "$ORIGINAL_USER:$ORIGINAL_USER" "$ZSHRC_FILE"
+        log_success "成功使用模板文件覆盖 .zshrc。"
+    else
+        log_error "从模板文件复制到 '$ZSHRC_FILE' 失败！"
+        return 1
+    fi
+}
+
 
 # ==============================================================================
 # .zshrc 配置协调函数 (安全事务模型)
@@ -193,7 +226,7 @@ _run_installation() {
 # _run_configuration()
 # @description 主协调函数，使用安全的文件更新策略来调用所有 .zshrc 的配置任务。
 _run_configuration() {
-    display_header_section "配置 .zshrc 文件" "box" 80
+    display_header_section "逐步配置 .zshrc 文件" "box" 80
     
     # --- 步骤 1: 前置检查和备份 ---
     if [ ! -f "$ZSHRC_FILE" ]; then
@@ -231,7 +264,6 @@ _run_configuration() {
 # .zshrc 具体配置函数 (接收临时文件路径作为参数)
 # ==============================================================================
 
-# _configure_p10k_instant_prompt()
 _configure_p10k_instant_prompt() {
     local target_file="$1"
     log_info "检查并配置 Powerlevel10k Instant Prompt..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
@@ -239,7 +271,6 @@ _configure_p10k_instant_prompt() {
     if ! run_as_user "grep -q 'p10k-instant-prompt' '$target_file'"; then
         log_notice "在 .zshrc 顶部添加 Instant Prompt 配置..."
         
-        # 步骤1 (root): 创建包含字面内容的临时文件
         local p10k_block_file; p10k_block_file=$(mktemp)
         cat > "$p10k_block_file" <<'EOF'
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
@@ -248,23 +279,15 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
 fi
 
 EOF
-        
-        # 步骤2 (root): 更改临时文件的所有权给目标用户
         chown "$ORIGINAL_USER:$ORIGINAL_USER" "$p10k_block_file"
 
-        # 步骤3 (user): 执行文件拼接和移动操作
-        if run_as_user "
+        if ! run_as_user "
             temp_combined_file=\$(mktemp)
-            # 用户现在可以读取 p10k_block_file 和 target_file
-            cat '$p10k_block_file' '$target_file' > \"\$temp_combined_file\"
-            mv \"\$temp_combined_file\" '$target_file'
-            # 清理 p10k block 临时文件
+            cat '$p10k_block_file' '$target_file' > \"\$temp_combined_file\" &&
+            mv \"\$temp_combined_file\" '$target_file' &&
             rm '$p10k_block_file'
         "; then
-            log_success "Instant Prompt 配置添加成功。"
-        else
             log_error "添加 Instant Prompt 配置失败！"
-            # 如果失败，root 清理 p10k block 临时文件
             rm -f "$p10k_block_file"
             return 1
         fi
@@ -272,8 +295,6 @@ EOF
       log_info "Instant Prompt 配置已存在，跳过。"
     fi
 }
-
-
 
 _configure_zsh_theme() {
     local target_file="$1"
@@ -303,7 +324,6 @@ _configure_fzf_tab() {
     if ! run_as_user "grep -q 'fzf-tab:complete' '$target_file'"; then
         log_notice "添加 fzf-tab 的高级 zstyle 配置..."
 
-        # 步骤1 (root): 创建包含字面内容的临时文件
         local fzf_block_file; fzf_block_file=$(mktemp)
         cat > "$fzf_block_file" <<'EOF'
 
@@ -318,17 +338,12 @@ zstyle ':fzf-tab:complete:*:*' fzf-preview '
    ls -lAh --color=always ${realpath}) 2>/dev/null'
 # End fzf-tab configuration
 EOF
-
-        # 步骤2 (root): 更改临时文件的所有权
         chown "$ORIGINAL_USER:$ORIGINAL_USER" "$fzf_block_file"
 
-        # 步骤3 (user): 执行追加和清理
-        if run_as_user "
-            cat '$fzf_block_file' >> '$target_file'
+        if ! run_as_user "
+            cat '$fzf_block_file' >> '$target_file' &&
             rm '$fzf_block_file'
         "; then
-            log_success "fzf-tab 高级配置添加成功。"
-        else
             log_error "添加 fzf-tab 高级配置失败！"
             rm -f "$fzf_block_file"
             return 1
@@ -338,55 +353,34 @@ EOF
     fi
 }
 
-
-# _configure_aliases()
-# @description 检查并配置常用别名和环境变量。
 _configure_aliases() {
     local target_file="$1"
     log_info "检查并配置常用别名和环境变量..."
     
-    # --- 为 eza 添加别名 ---
-    if is_package_installed "eza"; then
-        if ! run_as_user "grep -q \"# eza aliases\" '$target_file'"; then
-            log_notice "添加 eza 别名..."
-            local eza_aliases_block="# eza aliases
+    if is_package_installed "eza" && ! run_as_user "grep -q \"# eza aliases\" '$target_file'"; then
+        log_notice "添加 eza 别名..."
+        local eza_aliases_block="# eza aliases
 alias ls='eza --icons'
 alias l='eza -l'
 alias la='eza -a --icons'
 alias ll='eza -al --git --icons'
 alias tree='eza --tree'"
-            local escaped_block; escaped_block=$(printf "%q" "$eza_aliases_block")
-            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
-        else
-            log_info "eza 别名配置已存在，跳过。"
-        fi
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$eza_aliases_block' >> '$target_file'"
     fi
 
-    # --- 为 bat 添加别名和主题环境变量 ---
-    if is_package_installed "bat"; then
-        if ! run_as_user "grep -q \"# bat alias and theme\" '$target_file'"; then
-            log_notice "添加 bat 别名和主题..."
-            local bat_config_block="# bat alias and theme
+    if is_package_installed "bat" && ! run_as_user "grep -q \"# bat alias and theme\" '$target_file'"; then
+        log_notice "添加 bat 别名和主题..."
+        local bat_config_block="# bat alias and theme
 alias cat='bat --paging=never'
 export BAT_THEME=\"TwoDark\""
-            local escaped_block; escaped_block=$(printf "%q" "$bat_config_block")
-            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
-        else
-            log_info "bat 配置已存在，跳过。"
-        fi
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$bat_config_block' >> '$target_file'"
     fi
 
-    # --- 为 fzf 添加默认选项环境变量 ---
-    if is_package_installed "fzf"; then
-        if ! run_as_user "grep -q \"# fzf default options\" '$target_file'"; then
-            log_notice "添加 fzf 默认选项..."
-            local fzf_opts_block="# fzf default options
+    if is_package_installed "fzf" && ! run_as_user "grep -q \"# fzf default options\" '$target_file'"; then
+        log_notice "添加 fzf 默认选项..."
+        local fzf_opts_block="# fzf default options
 export FZF_DEFAULT_OPTS=\"--height 40% --layout=reverse --border\""
-            local escaped_block; escaped_block=$(printf "%q" "$fzf_opts_block")
-            run_as_user "echo -e '\n' >> '$target_file' && echo -e ${escaped_block} >> '$target_file'"
-        else
-            log_info "fzf 默认选项配置已存在，跳过。"
-        fi
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$fzf_opts_block' >> '$target_file'"
     fi
 }
 
@@ -401,7 +395,6 @@ _configure_p10k_init() {
 # ==============================================================================
 # 安装后指导函数
 # ==============================================================================
-
 _run_post_install_checks() {
     display_header_section "后续步骤和建议" "box" 80 "${COLOR_CYAN}"
     log_summary "Zsh 环境配置已完成！" "" "${COLOR_BRIGHT_GREEN}"
@@ -430,11 +423,12 @@ main() {
         log_warn "用户取消操作。"; exit 0
     fi
 
+    # --- 安装阶段 ---
     if _perform_checks; then
         if [[ "$INSTALL_MODE" == "skip" ]]; then
-            log_info "环境检查完毕，跳过安装步骤，仅进行配置。"
+            log_info "环境检查完毕，跳过安装步骤。"
         else
-            log_info "环境检查完毕，所有组件已安装。将进行配置。"
+            log_info "环境检查完毕，所有组件已安装。"
         fi
     else
         if [[ -n "$INSTALL_MODE" ]]; then
@@ -442,11 +436,39 @@ main() {
         fi
     fi
 
-    if ! _run_configuration; then
-        # 如果配置失败，主协调函数会返回1，我们在这里捕获并退出
-        handle_error "Zsh 配置过程中发生严重错误，已中止。" 1
-    fi
+    # --- 配置阶段 ---
+    local config_choice
+    while true; do
+        log_info "请选择 .zshrc 的配置方式:"
+        echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 逐步、安全地修改现有 .zshrc 文件 (推荐)"
+        echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} 从预设模板快速覆盖 .zshrc 文件 (警告: 将丢失现有配置)"
+        echo -e "  ${COLOR_RED}c.${COLOR_RESET} 跳过配置"
+        read -rp "$(echo -e "${COLOR_YELLOW}请输入您的选择 (1/2/c): ${COLOR_RESET}")" config_choice; echo
+        
+        case "$config_choice" in
+            1)
+                if ! _run_configuration; then
+                    handle_error "逐步配置 .zshrc 过程中发生严重错误，已中止。" 1
+                fi
+                break
+                ;;
+            2)
+                if ! _configure_from_template; then
+                     handle_error "从模板配置 .zshrc 过程中发生错误，已中止。" 1
+                fi
+                break
+                ;;
+            c|C)
+                log_info "用户选择跳过 .zshrc 配置。"
+                break
+                ;;
+            *)
+                log_warn "无效输入，请输入 1, 2 或 c。"
+                ;;
+        esac
+    done
     
+    # --- 指导阶段 ---
     _run_post_install_checks
 
     log_success "Zsh 环境配置模块执行完毕！"
