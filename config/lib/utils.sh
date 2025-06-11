@@ -2,8 +2,8 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/lib/utils.sh
-# 版本: 2.2.7 (实现日志级别固定宽度对齐)
-# 日期: 2025-06-08
+# 版本: 2.3.0 (最终修复备份清理的检测逻辑)
+# 日期: 2025-06-11
 # 描述: 核心通用函数库。
 #       提供项目运行所需的基础功能，包括日志记录、用户上下文识别、权限检查辅助、
 #       文件操作等。此文件不直接进行环境初始化或Root权限检查；其函数由
@@ -20,14 +20,18 @@
 # - 统一的错误处理函数 (handle_error)。
 # - 文件与目录权限管理辅助 - 职责更单一。
 # - 增强的头部显示函数 (display_header_section) 支持多种样式。
+# - **新增通用备份文件清理函数 (_cleanup_old_backups)。**
 # ------------------------------------------------------------------------------
 # 变更记录:
 # v2.0.0 - 2025-06-08 - 核心函数全面拆分重构，注释极致详尽。
 # v2.0.1 - 2025-06-08 - 优化变量声明：移除 utils.sh 顶部不必要的全局 export 变量声明。
 # v2.0.2 - 2025-06-08 - 优化变量声明：将 CURRENT_DAY_LOG_DIR 和 CURRENT_SCRIPT_LOG_FILE
 #                      的声明保留在 utils.sh，因为它们是日志模块的动态输出。
-# v2.0.3 - 2025-06-08 - 进一步优化变量声明：utils.sh 仅声明和导出其自身管理的变量 (颜色和日志状态)。
-#                      其他全局变量 (如 BASE_DIR, ORIGINAL_USER等) 假定由 environment_setup.sh 提供。
+# v2.0.3 - 2025-06-08 - 进一步精简，只包含静态配置和默认值。移除了所有运行时动态派生的路径变量
+#                      （如 CONFIG_DIR, MODULES_DIR, LOG_ROOT, DOTFILES_LOCAL_PATH）
+#                      以及运行时确定的用户变量（ORIGINAL_USER, ORIGINAL_HOME）。
+#                      引入 LOG_ROOT_RELATIVE_TO_BASE 来定义日志根目录相对于 BASE_DIR 的相对位置。
+#                      软件安装数组不再使用 'export' 关键字。
 # v2.0.4 - 2025-06-08 - 新增通用确认提示函数 `_confirm_action`，提高代码复用性。
 # v2.1.0 - 2025-06-08 - 日志系统核心重构：
 #                        1. 引入 `CURRENT_LOG_LEVEL` (从 `main_config.sh` 获取) 控制日志输出级别。
@@ -71,6 +75,10 @@
 # v2.2.7 - 2025-06-08 - **引入 `_LOG_LEVEL_PAD_WIDTH` 常量，用于日志级别名称的固定宽度对齐。**
 #                        **修改 `_log_message_core`，在生成 `[LEVEL]` 部分时使用 `printf` 进行左对齐填充。**
 #                        **调整 `initialize_logging_system` 中的硬编码日志，使其也保持对齐。**
+# v2.2.8 - 2025-06-11 - **新增通用备份文件清理函数 `_cleanup_old_backups`，支持指定目录、文件模式和最大保留数量。**
+#                        **此函数将从 `01_configure_mirrors.sh` 和 `03_add_archlinuxcn_repo.sh` 中提炼。**
+# v2.2.9 - 2025-06-11 - **修复 `_cleanup_old_backups` 函数中的备份文件检测逻辑，确保在有备份文件时能正确识别。**
+# v2.3.0 - 2025-06-11 - **最终修复 `_cleanup_old_backups` 函数，改用更鲁棒的 Bash 路径名扩展代替 `ls`，彻底解决备份文件检测失败问题。**
 # ==============================================================================
 
 # 严格模式：
@@ -160,12 +168,15 @@ export readonly _LOG_LEVEL_PAD_WIDTH=8
 # ------------------------------------------------------------------------------
 
 # _get_original_user_and_home()
-# 功能: 获取调用 sudo 的原始用户的用户名和其家目录路径。
-# 说明: 在脚本以 sudo 权限运行时，识别出实际操作的用户。
-#       由 environment_setup.sh 调用，直接将结果赋值给全局导出变量
-#       ORIGINAL_USER 和 ORIGINAL_HOME。
-# 依赖: SUDO_USER (环境变量), whoami, id, getent, grep (系统命令)。
-# 返回: 无。成功获取则设置全局变量，失败则输出警告/错误日志。
+# @description: 获取调用 sudo 的原始用户的用户名和其家目录路径。
+# @functionality:
+#   - 在脚本以 sudo 权限运行时，识别出实际操作的用户 (`SUDO_USER`)。
+#   - 如果 `SUDO_USER` 不存在 (例如，直接以 root 登录或执行脚本)，则使用当前用户 (`whoami`)。
+#   - 确定该用户的家目录 (`/root` 或通过 `getent passwd` 获取)。
+#   - 将结果赋值并导出到全局变量 `ORIGINAL_USER` 和 `ORIGINAL_HOME`。
+# @param: 无
+# @returns: 无。成功获取则设置全局变量，失败则输出警告/错误日志。
+# @depends: SUDO_USER (环境变量), whoami, id, getent, grep (系统命令)
 _get_original_user_and_home() {
     # 优先使用 SUDO_USER (如果通过 sudo 调用)，否则使用当前执行脚本的用户 (通常是 root)。
     ORIGINAL_USER="${SUDO_USER:-$(whoami)}" 
@@ -196,10 +207,13 @@ _get_original_user_and_home() {
 }
 
 # _create_directory_if_not_exists()
-# 功能: 辅助函数，用于创建目录（如果不存在）。
-# 参数: $1 (dir_path) - 要创建的目录路径。
-# 依赖: mkdir (系统命令)。
-# 返回: 0 (成功，目录已存在或创建成功) 或 1 (失败，无法创建目录)。
+# @description: 辅助函数，用于创建目录（如果不存在）。
+# @functionality:
+#   - 检查指定路径的目录是否存在。
+#   - 如果不存在，则使用 `mkdir -p` 创建所有必要的父目录。
+# @param: $1 (string) dir_path - 要创建的目录路径。
+# @returns: 0 (成功，目录已存在或创建成功) 或 1 (失败，无法创建目录)。
+# @depends: mkdir (系统命令)
 _create_directory_if_not_exists() {
     local dir_path="$1"
     if [ ! -d "$dir_path" ]; then
@@ -215,11 +229,14 @@ _create_directory_if_not_exists() {
 }
 
 # _check_dir_writable_by_user()
-# 功能: 辅助函数，检查指定目录是否对指定用户可写。
-# 参数: $1 (dir_path) - 要检查的目录路径。
-#       $2 (user) - 要检查的用户。
-# 依赖: sudo (如果用户不是当前用户), test (Bash 内置)。
-# 返回: 0 (可写) 或 1 (不可写)。
+# @description: 辅助函数，检查指定目录是否对指定用户可写。
+# @functionality:
+#   - 使用 `sudo -u <user> test -w <dir_path>` 命令来验证目录的可写性。
+#   - `test -w` 检查目录是否可写。
+# @param: $1 (string) dir_path - 要检查的目录路径。
+# @param: $2 (string) user - 要检查的用户。
+# @returns: 0 (可写) 或 1 (不可写)。
+# @depends: sudo (如果用户不是当前用户), test (Bash 内置)
 _check_dir_writable_by_user() {
     local dir_path="$1"
     local user="$2"
@@ -227,11 +244,14 @@ _check_dir_writable_by_user() {
 }
 
 # _try_set_dir_acl()
-# 功能: 辅助函数，尝试使用 setfacl 为目录设置用户写入权限。
-# 依赖: setfacl (系统命令)。
-# 参数: $1 (dir_path) - 目录路径。
-#       $2 (user) - 要授权的用户。
-# 返回: 0 (setfacl 成功) 或 1 (setfacl 失败或命令不可用)。
+# @description: 辅助函数，尝试使用 setfacl 为目录设置用户写入权限。
+# @functionality:
+#   - 检查 `setfacl` 命令是否可用。
+#   - 如果可用，则使用 `setfacl -m u:<user>:rwx -d -m u:<user>:rwx <dir_path>` 命令为指定用户设置读、写、执行权限，并设置默认 ACL 以便新创建的文件和目录也继承这些权限。
+# @param: $1 (string) dir_path - 目录路径。
+# @param: $2 (string) user - 要授权的用户。
+# @returns: 0 (setfacl 成功) 或 1 (setfacl 失败或命令不可用)。
+# @depends: setfacl (系统命令)
 _try_set_dir_acl() {
     local dir_path="$1"
     local user="$2"
@@ -252,12 +272,16 @@ _try_set_dir_acl() {
 }
 
 # _try_chown_chmod_dir_group_write()
-# 功能: 辅助函数，尝试使用 chown/chmod 为目录设置组写入权限，并改变所有者。
-# 说明: 作为 setfacl 的回退方案。
-# 依赖: id, chown, chmod (系统命令)。
-# 参数: $1 (dir_path) - 目录路径。
-#       $2 (user) - 用户 (用于 chown，更改为 root:$user_primary_group)。
-# 返回: 0 (成功) 或 1 (失败)。
+# @description: 辅助函数，尝试使用 chown/chmod 为目录设置组写入权限，并改变所有者。
+# @functionality:
+#   - 作为 `setfacl` 的回退方案。
+#   - 获取指定用户的主组。
+#   - 将目录的组所有者更改为 `root`:`user_primary_group`。
+#   - 为该组添加写入权限。
+# @param: $1 (string) dir_path - 目录路径。
+# @param: $2 (string) user - 用户 (用于 chown，更改为 root:$user_primary_group)。
+# @returns: 0 (成功) 或 1 (失败)。
+# @depends: id, chown, chmod (系统命令)
 _try_chown_chmod_dir_group_write() {
     local dir_path="$1"
     local user="$2"
@@ -285,14 +309,15 @@ _try_chown_chmod_dir_group_write() {
 }
 
 # _ensure_log_dir_user_owned()
-# 功能: 确保指定的日志目录存在，并设置适当的权限，使其可供 ORIGINAL_USER 写入。
-# 说明: 封装了创建目录、检查可写、尝试 setfacl、回退到 chown/chmod 的完整逻辑。
-#       由 initialize_logging_system 调用。
-# 依赖: _create_directory_if_not_exists, _check_dir_writable_by_user,
-#       _try_set_dir_acl, _try_chown_chmod_dir_group_write。
-# 参数: $1 (dir_path) - 要检查/创建的日志目录的绝对路径（例如 CURRENT_DAY_LOG_DIR）。
-#       $2 (user)    - ORIGINAL_USER (调用 sudo 的用户)。
-# 返回: 0 (成功) 或 1 (失败)。
+# @description: 确保指定的日志目录存在，并设置适当的权限，使其可供 ORIGINAL_USER 写入。
+# @functionality:
+#   - 封装了创建目录、检查可写、尝试 setfacl、回退到 chown/chmod 的完整逻辑。
+#   - 由 `initialize_logging_system` 调用。
+# @param: $1 (string) dir_path - 要检查/创建的日志目录的绝对路径（例如 CURRENT_DAY_LOG_DIR）。
+# @param: $2 (string) user    - `ORIGINAL_USER` (调用 sudo 的用户)。
+# @returns: 0 (成功) 或 1 (失败)。
+# @depends: _create_directory_if_not_exists, _check_dir_writable_by_user,
+#           _try_set_dir_acl, _try_chown_chmod_dir_group_write
 _ensure_log_dir_user_owned() {
     local dir_path="$1"
     local user="$2"
@@ -331,11 +356,15 @@ _ensure_log_dir_user_owned() {
 
 
 # _create_and_secure_log_file()
-# 功能: 辅助函数，封装单个日志文件的创建、权限和所有权设置。
-# 依赖: touch, chmod, chown, id (系统命令)。
-# 参数: $1 (file_path) - 要创建的日志文件的绝对路径。
-#       $2 (user) - 日志文件的预期所有者用户。
-# 返回: 0 (成功) 或 1 (失败)。
+# @description: 辅助函数，封装单个日志文件的创建、权限和所有权设置。
+# @functionality:
+#   - 尝试使用 `touch` 命令创建日志文件。
+#   - 设置文件权限为 `644` (rw-r--r--)。
+#   - 尝试将文件所有权更改为指定的原始用户。
+# @param: $1 (string) file_path - 要创建的日志文件的绝对路径。
+# @param: $2 (string) user - 日志文件的预期所有者用户。
+# @returns: 0 (成功) 或 1 (失败)。
+# @depends: touch, chmod, chown, id (系统命令)
 _create_and_secure_log_file() {
     local file_path="$1"
     local user="$2"
@@ -371,12 +400,14 @@ _create_and_secure_log_file() {
 }
 
 # _center_text()
-# 功能: 辅助函数，用于将文本居中并用指定字符填充。
-# 说明: 主要供 display_header_section 函数内部使用。
-# 参数: $1 (text) - 要居中的文本。
-#       $2 (total_width) - 总宽度。
-#       $3 (fill_char) - 填充字符 (例如 " ")。
-# 返回: 居中后的字符串。
+# @description: 辅助函数，用于将文本居中并用指定字符填充。
+# @functionality:
+#   - 计算文本在指定总宽度内的左右填充长度。
+#   - 使用 `printf` 和 `tr` 命令实现文本的居中对齐和填充。
+# @param: $1 (string) text - 要居中的文本。
+# @param: $2 (integer) total_width - 总宽度。
+# @param: $3 (string) fill_char - 填充字符 (例如 " ")。
+# @returns: 居中后的字符串。
 _center_text() {
     local text="$1"
     local total_width="$2"
@@ -396,21 +427,25 @@ _center_text() {
 }
 
 # _strip_ansi_colors()
-# 功能: 辅助函数，从字符串中移除 ANSI 颜色转义码。
-# 说明: 主要用于确保写入日志文件的字符串是纯文本，避免日志文件包含颜色码。
-# 依赖: sed (系统命令)。
-# 参数: $1 (text) - 包含 ANSI 颜色码的字符串。
-# 返回: 移除颜色码后的纯文本字符串。
+# @description: 辅助函数，从字符串中移除 ANSI 颜色转义码。
+# @functionality:
+#   - 使用 `sed` 命令和正则表达式匹配并移除所有 ANSI 颜色转义序列。
+#   - 主要用于确保写入日志文件的字符串是纯文本，避免日志文件包含颜色码。
+# @param: $1 (string) text - 包含 ANSI 颜色码的字符串。
+# @returns: 移除颜色码后的纯文本字符串。
+# @depends: sed (系统命令)
 _strip_ansi_colors() {
     echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'
 }
 
 # _get_log_caller_info()
-# 功能: 从 Bash 堆栈中解析出日志调用者的名称（函数名或脚本文件路径）。
-# 说明: 遍历 FUNCNAME 和 BASH_SOURCE 数组，跳过内部日志/工具函数。
-# 依赖: FUNCNAME (Bash 内置数组), BASH_SOURCE (Bash 内置数组), basename (系统命令)。
-# 参数: $1 (current_level) - 当前日志级别，用于特殊处理 SUMMARY 级别 (跳过查找)。
-# 返回: 字符串，表示调用者的名称。
+# @description: 从 Bash 堆栈中解析出日志调用者的名称（函数名或脚本文件路径）。
+# @functionality:
+#   - 遍历 `FUNCNAME` 和 `BASH_SOURCE` 数组，跳过内部日志/工具函数。
+#   - 旨在找到触发日志调用的“业务逻辑”函数或脚本文件。
+# @param: $1 (string) current_level - 当前日志级别，用于特殊处理 SUMMARY 级别 (跳过查找)。
+# @returns: 字符串，表示调用者的名称。
+# @depends: FUNCNAME (Bash 内置数组), BASH_SOURCE (Bash 内置数组), basename (系统命令)
 _get_log_caller_info() {
     local current_level="$1"
     
@@ -457,6 +492,7 @@ _get_log_caller_info() {
         "_get_log_level_number"           # 日志级别转换辅助 (新增)
         "_get_display_mode_name"          # 显示模式名称转换辅助 (新增)
         "_get_format_mode_name"           # 格式模式名称转换辅助 (新增)
+        "_cleanup_old_backups"            # 通用备份清理辅助 (新增)
         # 通用权限检查辅助函数
         "check_root_privileges"       
         # 菜单显示函数 (如果希望其日志源显示脚本名而非函数名，则在此处添加)
@@ -520,9 +556,9 @@ _get_log_caller_info() {
 }
 
 # _get_log_level_number()
-# 功能: 将日志级别名称转换为数值，用于比较和过滤。
-# 参数: $1 (level_name) - 日志级别名称 (例如 "INFO", "WARN")。
-# 返回: 对应的数值。如果未知，返回 0 (最低优先级)。
+# @description: 将日志级别名称转换为数值，用于比较和过滤。
+# @param: $1 (string) level_name - 日志级别名称 (例如 "INFO", "WARN")。
+# @returns: 对应的数值。如果未知，返回 0 (最低优先级)。
 _get_log_level_number() {
     local level_name="$1"
     case "${level_name^^}" in # Convert to uppercase for robust comparison
@@ -539,9 +575,9 @@ _get_log_level_number() {
 }
 
 # _get_display_mode_name()
-# 功能: 将终端显示模式的数字代号或字符串名称转换为规范的字符串名称。
-# 参数: $1 (mode_input) - 模式输入（可以是数字 "1", "2", "3" 或字符串 "no_color", "prefix_only_color", "all_color"）。
-# 返回: 规范的字符串模式名称。如果输入无效，则返回全局默认值 DISPLAY_MODE。
+# @description: 将终端显示模式的数字代号或字符串名称转换为规范的字符串名称。
+# @param: $1 (string) mode_input - 模式输入（可以是数字 "1", "2", "3" 或字符串 "no_color", "prefix_only_color", "all_color"）。
+# @returns: 规范的字符串模式名称。如果输入无效，则返回全局默认值 DISPLAY_MODE。
 _get_display_mode_name() {
     local mode_input="$1"
     case "${mode_input}" in
@@ -555,9 +591,9 @@ _get_display_mode_name() {
 }
 
 # _get_format_mode_name()
-# 功能: 将消息格式模式的数字代号或字符串名称转换为规范的字符串名称。
-# 参数: $1 (mode_input) - 模式输入（可以是数字 "1", "2", "3", "4" 或字符串 "full", "level_only", "no_prefix", "timestamp_level"）。
-# 返回: 规范的字符串模式名称。如果输入无效，则返回全局默认值 DEFAULT_MESSAGE_FORMAT_MODE。
+# @description: 将消息格式模式的数字代号或字符串名称转换为规范的字符串名称。
+# @param: $1 (string) mode_input - 模式输入（可以是数字 "1", "2", "3", "4" 或字符串 "full", "level_only", "no_prefix", "timestamp_level"）。
+# @returns: 规范的字符串模式名称。如果输入无效，则返回全局默认值 DEFAULT_MESSAGE_FORMAT_MODE。
 _get_format_mode_name() {
     local mode_input="$1"
     case "${mode_input}" in
@@ -576,18 +612,25 @@ _get_format_mode_name() {
 # ------------------------------------------------------------------------------
 
 # _log_message_core()
-# 功能: 核心日志记录逻辑，负责格式化日志信息并输出到终端和文件。
-# 依赖: _get_log_caller_info(), _strip_ansi_colors(), _get_log_level_number() (内部辅助函数)。
-#       全局变量：COLOR_X (颜色常量), ENABLE_COLORS, CURRENT_LOG_LEVEL, DISPLAY_MODE, DEFAULT_MESSAGE_FORMAT_MODE, CURRENT_SCRIPT_LOG_FILE。
-# 参数: $1 (level) - 日志级别 (例如 "INFO", "ERROR", "SUMMARY", "FATAL", "SUCCESS")。
-#       $2 (message) - 要记录的日志消息。
-#       $3 (optional_display_mode_input) - 可选，覆盖全局 DISPLAY_MODE 的终端显示模式。
-#                                             可选值: "no_color" (1), "prefix_only_color" (2), "all_color" (3)。
-#       $4 (optional_message_format_mode_input) - 可选，覆盖全局 DEFAULT_MESSAGE_FORMAT_MODE 的消息前缀格式。
-#                                                    可选值: "full" (1), "level_only" (2), "no_prefix" (3), "timestamp_level" (4)。
-#       $5 (optional_message_content_color) - 可选，仅在 "all_color" 模式下生效，
-#                                            指定消息内容本身的颜色。
-# 返回: 无。直接将日志信息输出到终端和文件。
+# @description: 核心日志记录逻辑，负责格式化日志信息并输出到终端和文件。
+# @functionality:
+#   - 生成时间戳和日志调用者信息。
+#   - 始终将纯文本日志信息写入 `CURRENT_SCRIPT_LOG_FILE`。
+#   - 根据 `CURRENT_LOG_LEVEL` 过滤终端输出。
+#   - 根据 `ENABLE_COLORS` 和 `final_display_mode` 应用颜色。
+#   - 根据 `final_message_format_mode` 组合最终的终端输出字符串。
+#   - 使用 `printf` 对日志级别名称进行固定宽度对齐。
+# @param: $1 (string) level - 日志级别 (例如 "INFO", "ERROR", "SUMMARY", "FATAL", "SUCCESS")。
+# @param: $2 (string) message - 要记录的日志消息。
+# @param: $3 (string, optional) optional_display_mode_input - 可选，覆盖全局 DISPLAY_MODE 的终端显示模式。
+#          可选值: "no_color" (1), "prefix_only_color" (2), "all_color" (3)。
+# @param: $4 (string, optional) optional_message_format_mode_input - 可选，覆盖全局 DEFAULT_MESSAGE_FORMAT_MODE 的消息前缀格式。
+#          可选值: "full" (1), "level_only" (2), "no_prefix" (3), "timestamp_level" (4)。
+# @param: $5 (string, optional) optional_message_content_color - 可选，仅在 "all_color" 模式下生效，
+#          指定消息内容本身的颜色。对于 "SUMMARY" 级别，此参数将作为整个 SUMMARY 行的颜色。
+# @returns: 无。直接将日志信息输出到终端和文件。
+# @depends: _get_log_caller_info(), _strip_ansi_colors(), _get_log_level_number(),
+#           _get_display_mode_name(), _get_format_mode_name() (内部辅助函数)
 _log_message_core() {
     local level="$1"
     local message="$2"
@@ -705,14 +748,18 @@ _log_message_core() {
 }
 
 # initialize_logging_system()
-# 功能: 初始化整个日志系统。
-# 说明: 负责设置日志根目录、当前日期日志目录、文件路径、权限，并激活日志文件写入。
-#       由 environment_setup.sh 调用一次，以确保日志系统在脚本早期可用。
-# 依赖: 全局变量 BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME。
-#       内部辅助函数：_validate_logging_prerequisites(), _get_current_day_log_dir(),
-#       _ensure_log_dir_user_owned(), _create_and_secure_log_file()。
-# 参数: $1 (caller_script_path) - 原始入口点脚本的完整路径。
-# 返回: 0 (成功) 或 1 (失败)。
+# @description: 初始化整个日志系统。
+# @functionality:
+#   - 验证必要的全局变量是否已设置。
+#   - 设置日志根目录、当前日期日志目录和当前脚本的专属日志文件路径。
+#   - 确保日志目录存在并对 `ORIGINAL_USER` 有写入权限。
+#   - 创建并设置当前脚本日志文件的权限和所有权。
+#   - 由 `environment_setup.sh` 调用一次，以确保日志系统在脚本早期可用。
+# @param: $1 (string) caller_script_path - 原始入口点脚本的完整路径。
+# @returns: 0 (成功) 或 1 (失败)。
+# @depends: 全局变量 BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME,
+#           _validate_logging_prerequisites(), _get_current_day_log_dir(),
+#           _ensure_log_dir_user_owned(), _create_and_secure_log_file() (内部辅助函数)
 initialize_logging_system() {
     local caller_script_path="$1"
     local script_name=$(basename "$caller_script_path")
@@ -773,10 +820,12 @@ initialize_logging_system() {
 }
 
 # _validate_logging_prerequisites()
-# 功能: 辅助函数，验证 initialize_logging_system 所需的全局变量是否已设置。
-# 说明: 在日志系统初始化时执行，确保所有依赖的全局变量可用。如果缺失，直接输出错误并退出。
-# 依赖: 全局变量 BASE_DIR, LOG_ROOT, ORIGINAL_USER, ORIGINAL_HOME。
-# 返回: 0 (所有变量已设置) 或 1 (缺失变量，直接退出)。
+# @description: 辅助函数，验证 initialize_logging_system 所需的全局变量是否已设置。
+# @functionality:
+#   - 在日志系统初始化时执行，确保所有依赖的全局变量可用。
+#   - 如果缺失，直接输出错误信息到标准错误并退出脚本，因为此时日志系统尚未完全可用。
+# @param: 无
+# @returns: 0 (所有变量已设置) 或 1 (缺失变量，直接退出)。
 _validate_logging_prerequisites() {
     if [ -z "${BASE_DIR+set}" ] || [ -z "${LOG_ROOT+set}" ] || \
        [ -z "${DISPLAY_MODE+set}" ] || [ -z "${DEFAULT_MESSAGE_FORMAT_MODE+set}" ] || \
@@ -790,9 +839,13 @@ _validate_logging_prerequisites() {
 }
 
 # _get_current_day_log_dir()
-# 功能: 辅助函数，计算并导出当前日期的日志目录路径。
-# 依赖: LOG_ROOT (全局变量), date (系统命令)。
-# 返回: 0 (成功) 或 1 (如果 LOG_ROOT 未设置则失败，直接退出)。
+# @description: 辅助函数，计算并导出当前日期的日志目录路径。
+# @functionality:
+#   - 根据 `LOG_ROOT` (日志根目录) 和当前日期生成一个格式为 `YYYY-MM-DD` 的子目录路径。
+#   - 将生成的路径赋值并导出到全局变量 `CURRENT_DAY_LOG_DIR`。
+# @param: 无
+# @returns: 0 (成功) 或 1 (如果 `LOG_ROOT` 未设置则失败，直接退出)。
+# @depends: LOG_ROOT (全局变量), date (系统命令)
 _get_current_day_log_dir() {
     if [ -z "${LOG_ROOT+set}" ] || [ -z "$LOG_ROOT" ]; then
         # 此时 log_error 可能还无法完全记录到文件，直接 echo。
@@ -800,6 +853,81 @@ _get_current_day_log_dir() {
         return 1
     fi
     export CURRENT_DAY_LOG_DIR="${LOG_ROOT}/$(date +%Y-%m-%d)"
+    return 0
+}
+
+# _cleanup_old_backups()
+# @description: 通用备份文件清理函数，用于限制指定目录下符合特定模式的备份文件数量。
+# @functionality:
+#   - **核心逻辑**: 使用 Bash 路径名扩展 (`/path/to/files/*`) 代替 `ls`，更安全、更鲁棒地获取文件列表。
+#   - 检查备份目录是否存在。
+#   - 获取目录下所有符合 `filename_pattern` 的文件，并按修改时间倒序排列。
+#   - 如果文件数量超过 `max_files`，则删除最旧的超出部分文件。
+# @param: $1 (string) backup_dir - 备份文件所在的目录的绝对路径。
+# @param: $2 (string) filename_pattern - 备份文件的命名模式，例如 "mirrorlist.bak.*" 或 "pacman.conf.bak.*"。
+# @param: $3 (integer) max_files - 允许保留的最大备份文件数量。
+# @returns: 0 on success (cleanup performed or not needed), 1 on failure (e.g., failed to remove a file due to permissions).
+# @depends: rm, ls (for sorting), log_info(), log_success(), log_warn(), log_debug(), log_error() (from utils.sh)
+_cleanup_old_backups() {
+    local backup_dir="$1"
+    local filename_pattern="$2"
+    local max_files="$3"
+
+    log_debug "Starting universal cleanup process for old backup files in '$backup_dir' matching pattern '$filename_pattern'."
+    
+    # 检查备份目录是否存在
+    if [ ! -d "$backup_dir" ]; then
+        log_debug "Backup directory '$backup_dir' does not exist. No old backups to clean up."
+        return 0
+    fi
+    
+    # 使用 Bash 路径名扩展获取文件列表
+    local all_files=(${backup_dir}/${filename_pattern})
+
+    # 检查是否有备份文件。如果找不到文件，数组会包含模式字符串本身。
+    # 我们通过检查第一个元素是否存在于文件系统中来验证。
+    if [ ! -e "${all_files[0]}" ]; then
+        log_info "No existing backup files found in '$backup_dir' for cleanup matching pattern '$filename_pattern'."
+        return 0
+    fi
+    
+    # 使用 `ls -t` 对已确定的文件列表进行排序
+    local sorted_files=($(ls -t "${all_files[@]}" 2>/dev/null || true))
+    local num_files="${#sorted_files[@]}"
+    log_info "Found $num_files backup files. Maximum allowed: $max_files."
+
+    # 计算需要删除的文件数量
+    local files_to_delete=$(( num_files - max_files ))
+    
+    if [ "$files_to_delete" -gt 0 ]; then
+        log_info "Retaining the newest $max_files backups and deleting the oldest $files_to_delete files..."
+        
+        # 从索引 `max_files` 开始，截取到数组末尾，这些就是要删除的文件。
+        local files_to_remove=("${sorted_files[@]:max_files}")
+        
+        # 遍历并删除旧备份文件
+        local removal_failed=0
+        for file in "${files_to_remove[@]}"; do
+            if [ -f "$file" ]; then # 再次确认文件存在，防止通配符扩展问题
+                log_info "Removing old backup: '$file'"
+                if ! rm -f "$file"; then # `rm -f` 避免交互确认，强制删除
+                    log_error "Failed to remove old backup file: '$file'. This might be a permissions issue or disk corruption."
+                    removal_failed=1
+                fi
+            fi
+        done
+        
+        if [ "$removal_failed" -eq 0 ]; then
+            log_success "Successfully cleaned up old backup files."
+            return 0
+        else
+            log_warn "Some old backup files could not be removed from '$backup_dir'. Manual inspection might be required."
+            return 1
+        fi
+    else
+        log_info "No old backup files need to be removed (current count: $num_files <= max allowed: $max_files)."
+    fi
+    
     return 0
 }
 
@@ -831,10 +959,11 @@ log_summary() { _log_message_core "SUMMARY" "$1" "all_color" "no_prefix" "${2:-}
 # ------------------------------------------------------------------------------
 
 # check_root_privileges()
-# 功能: 检查当前脚本是否以 root 权限运行。
-# 说明: 此函数只进行检查并返回状态码，不直接输出错误或退出。
-#       由调用者处理其返回值。早期的强制性 Root 检查在 environment_setup.sh 中。
-# 返回: 0 (成功) 表示是 root，1 (失败) 表示不是 root。
+# @description: 检查当前脚本是否以 root 权限运行。
+# @functionality:
+#   - 检查当前用户的有效用户 ID (`id -u`) 是否为 0。
+# @param: 无
+# @returns: 0 (成功) 表示是 root，1 (失败) 表示不是 root。
 check_root_privileges() {
     if [[ "$(id -u)" -ne 0 ]]; then
         return 1 # 非 root 用户
@@ -844,17 +973,18 @@ check_root_privileges() {
 }
 
 # display_header_section()
-# 功能: 在终端和日志中打印一个格式化的标题或部分分隔符。
-# 说明: 其日志源通常希望显示调用脚本名而非函数名，
-#       故其函数名已被添加到 _log_message_core 的内部工具函数列表中。
-#       此函数通过调用 log_summary 来实现多色 SUMMARY 级别输出。
-# 依赖: _center_text() (内部辅助函数), log_summary()。
-# 参数: $1 (title) - 要显示的标题文本。
-#       $2 (style) - 可选，标题样式 ("default", "box", "decorated")。
-#       $3 (width) - 可选，标题总宽度 (默认为 60)。
-#       $4 (border_color) - 可选，边框颜色 (例如 COLOR_CYAN)。
-#       $5 (title_color) - 可选，标题文字颜色 (例如 COLOR_YELLOW)。
-# 返回: 无。直接输出到终端和日志。
+# @description: 在终端和日志中打印一个格式化的标题或部分分隔符。
+# @functionality:
+#   - 根据传入的标题文本、样式、宽度和颜色参数，生成并显示一个格式化的标题框。
+#   - 使用 `_center_text()` 辅助函数实现文本居中。
+#   - 通过调用 `log_summary` 来实现多色 SUMMARY 级别输出。
+# @param: $1 (string) title - 要显示的标题文本。
+# @param: $2 (string, optional) style - 标题样式 ("default", "box", "decorated")。默认为 "default"。
+# @param: $3 (integer, optional) width - 标题总宽度 (默认为 60)。
+# @param: $4 (string, optional) border_color - 边框颜色 (例如 COLOR_CYAN)。
+# @param: $5 (string, optional) title_color - 标题文字颜色 (例如 COLOR_YELLOW)。
+# @returns: 无。直接输出到终端和日志。
+# @depends: _center_text() (内部辅助函数), log_summary()
 display_header_section() {
     local title="$1"
     local style="${2:-default}" # 默认为 default 样式
@@ -935,11 +1065,15 @@ display_header_section() {
 }
 
 # handle_error()
-# 功能: 统一的错误处理函数，记录错误并退出脚本。
-# 说明: 通常用于致命错误，导致脚本无法继续执行。
-#       其函数名已被添加到 _log_message_core 的内部工具函数列表中。
-# 参数: $1 (message) - 错误消息。
-#       $2 (exit_code) - 可选，自定义退出码 (默认为 1)。
+# @description: 统一的错误处理函数，记录错误并退出脚本。
+# @functionality:
+#   - 记录一个致命错误消息。
+#   - 记录脚本因错误而终止的提示。
+#   - 以指定的退出码 (默认为 1) 终止当前脚本的执行。
+#   - 通常用于致命错误，导致脚本无法继续执行。
+# @param: $1 (string) message - 错误消息。
+# @param: $2 (integer, optional) exit_code - 自定义退出码 (默认为 1)。
+# @returns: Does not return (exits the script).
 handle_error() {
     local message="$1"
     local exit_code="${2:-1}"
@@ -950,11 +1084,15 @@ handle_error() {
     exit "$exit_code"
 }
 # _confirm_action()
-# 功能: 显示一个带颜色的确认提示，并等待用户输入 (y/N)。
-# 参数: $1 (prompt_text) - 提示用户的文本。
-#       $2 (default_yn) - 默认响应 ('y' 或 'n'，不区分大小写)。
-#       $3 (color_code) - 提示文本的颜色代码 (例如 ${COLOR_YELLOW}, ${COLOR_RED})。
-# 返回: 0 (用户输入 Y/y), 1 (用户输入 N/n 或直接回车)。
+# @description: 显示一个带颜色的确认提示，并等待用户输入 (y/N)。
+# @functionality:
+#   - 显示一个带有指定文本和颜色的提示信息。
+#   - 接受用户输入，如果输入为空，则使用默认值。
+#   - 判断用户输入是否为 'y' 或 'Y'。
+# @param: $1 (string) prompt_text - 提示用户的文本。
+# @param: $2 (string) default_yn - 默认响应 ('y' 或 'n'，不区分大小写)。
+# @param: $3 (string) color_code - 提示文本的颜色代码 (例如 ${COLOR_YELLOW}, ${COLOR_RED})。
+# @returns: 0 (用户输入 Y/y), 1 (用户输入 N/n 或直接回车)。
 _confirm_action() {
     local prompt_text="$1"
     local default_yn="${2:-n}" # Default to 'n' for safety if not provided
