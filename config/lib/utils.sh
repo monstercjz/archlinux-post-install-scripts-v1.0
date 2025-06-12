@@ -1134,15 +1134,45 @@ display_header_section() {
 # @param: $1 (string) message - 错误消息。
 # @param: $2 (integer, optional) exit_code - 自定义退出码 (默认为 1)。
 # @returns: Does not return (exits the script).
+# handle_error() {
+#     local message="$1"
+#     local exit_code="${2:-1}"
+#     # 强制错误消息为红色，并以 full 格式显示（保持所有前缀信息）
+#     # 参数顺序： message, display_mode_override_input, format_mode_override_input, content_color
+#     log_error "$message" "all_color" "full" "${COLOR_RED}" 
+#     log_error "Script execution terminated due to previous error." "all_color" "full" "${COLOR_RED}"
+#     exit "$exit_code"
+# }
+# 增强错误处理函数
 handle_error() {
     local message="$1"
     local exit_code="${2:-1}"
-    # 强制错误消息为红色，并以 full 格式显示（保持所有前缀信息）
-    # 参数顺序： message, display_mode_override_input, format_mode_override_input, content_color
+    
+    # 显示错误信息到终端
     log_error "$message" "all_color" "full" "${COLOR_RED}" 
     log_error "Script execution terminated due to previous error." "all_color" "full" "${COLOR_RED}"
+    
+    # 记录错误到日志文件
+    if [[ -n "${CURRENT_SCRIPT_LOG_FILE:-}" ]]; then
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] [FATAL] [$(basename "${BASH_SOURCE[1]}")] $message" >> "${CURRENT_SCRIPT_LOG_FILE}"
+    fi
+    
+    # 可选：提供更多诊断信息
+    
+        echo -e "\n${COLOR_YELLOW}Diagnostic Information:${COLOR_RESET}"
+        echo -e "  - Current Directory: $(pwd)"
+        echo -e "  - User: $(id -un) (UID: $(id -u))"
+        echo -e "  - Environment Variables:"
+        env | grep -E '^BASE|^LOG|^MODULES' | sort | sed 's/^/    /'
+    
+    
+    # 等待用户确认后退出
+    read -rp "$(echo -e "${COLOR_RED}Press Enter to exit...${COLOR_RESET}")"
+    
     exit "$exit_code"
 }
+
+
 # _confirm_action()
 # @description: 显示一个带颜色的确认提示，并等待用户输入 (y/N)。
 # @functionality:
