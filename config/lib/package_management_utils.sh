@@ -114,7 +114,7 @@ sync_system_and_refresh_db() {
     local success=1
 
     log_info "Executing 'pacman -Syyu' to synchronize system packages and refresh database..."
-
+    # | tee /dev/stderr 可以让同步输出到标准错误流，这样用户可以看到同步进度。
     while [ "$retry_count" -lt "$max_retries" ]; do
         if output=$(pacman -Syyu --noconfirm 2>&1 | tee /dev/stderr); then
             log_success "System synchronized and database refreshed successfully."
