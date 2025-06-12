@@ -140,9 +140,23 @@ _configure_nanorc() {
     
     create_backup_and_cleanup "$nanorc_path" "nanorc"
 
+    # =================================================================
+    # 更新的配置项列表
+    # =================================================================
     declare -A nano_options=(
+        # --- 核心体验 ---
         ["set linenumbers"]="启用行号"
         ["set autoindent"]="启用自动缩进"
+        ["set constantshow"]="在状态栏持续显示光标位置"
+        
+        # --- Tab 和缩进 ---
+        ["set tabsize 4"]="设置Tab键宽度为4个空格"
+        ["set tabstospaces"]="将Tab键转换为空格"
+
+        # --- 鼠标和滚动 ---
+        ["set mouse"]="启用鼠标支持 (点击定位, 滚轮滚动)"
+        
+        # --- 语法高亮 (通常放在最后) ---
         ["include /usr/share/nano/*.nanorc"]="启用语法高亮"
     )
 
@@ -150,18 +164,12 @@ _configure_nanorc() {
     for option in "${!nano_options[@]}"; do
         local description="${nano_options[$option]}"
         
-        # =================================================================
-        # 核心修复: 使用 `grep -F -x` 进行字面量、全行匹配。
-        # 这是检查特定行是否存在的正确且健壮的方法，避免了所有正则表达式转义问题。
-        # =================================================================
         if ! run_as_user "grep -q -F -x \"${option}\" \"${nanorc_path}\""; then
             log_info "正在添加选项: '$option' ($description)。"
             if run_as_user "echo \"$option\" >> \"${nanorc_path}\""; then
-                log_success "添加选项 '$option' 到 '$nanorc_path' 成功。"
                 changes_made=true
             else
                 log_error "添加选项 '$option' 到 '$nanorc_path' 失败。"
-                # 允许继续处理下一个选项
             fi
         else
             log_info "选项 '$option' 已存在，跳过。"
