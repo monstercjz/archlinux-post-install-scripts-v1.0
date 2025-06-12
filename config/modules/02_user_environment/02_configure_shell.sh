@@ -355,7 +355,7 @@ _configure_zsh_theme() {
 
 _configure_plugins_line() {
     local target_file="$1"
-    log_info "检查并配置 Oh My Zsh 插件列表..."; local desired_plugins=("git" "sudo")
+    log_info "检查并配置 Oh My Zsh 插件列表..."; local desired_plugins=("git" "sudo" "z")
     if is_package_installed "fzf"; then desired_plugins+=("fzf"); fi
     if _is_omz_plugin_installed "fzf-tab"; then desired_plugins+=("fzf-tab"); fi
     if _is_omz_plugin_installed "zsh-autosuggestions"; then desired_plugins+=("zsh-autosuggestions"); fi

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/01_system_base/02_setup_network.sh
+# 文件: config/modules/01_system_base/03_setup_network.sh
 # 版本: 1.0.6 (彻底修复 `_get_interfaces` 函数逻辑)
 # 日期: 2025-06-11
 # 描述: 提供使用 NetworkManager (nmcli) 进行网络配置的交互式菜单。

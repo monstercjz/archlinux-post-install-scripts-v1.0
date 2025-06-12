@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/02_package_management/02_setup_pacman_hooks.sh
+# 文件: config/modules/02_package_management/04_setup_pacman_hooks.sh
 # 版本: 1.0.3 (增强用户交互决策)
 # 日期: 2025-06-11
 # 描述: 部署自定义的 Pacman hooks 以在包管理操作前后自动执行脚本。

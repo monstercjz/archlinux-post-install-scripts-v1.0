@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/01_system_base/03_add_archlinuxcn_repo.sh
+# 文件: config/modules/01_system_base/02_add_archlinuxcn_repo.sh
 # 版本: 1.0.13 (最终交互流程优化：先展示后询问)
 # 日期: 2025-06-11
 # 描述: 添加并配置 Arch Linux CN (archlinuxcn) 软件仓库及其 GPG 密钥。
