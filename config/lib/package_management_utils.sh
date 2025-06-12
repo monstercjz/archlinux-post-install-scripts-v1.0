@@ -358,7 +358,121 @@ install_paru_pkg() {
         return 1
     fi
 }
+# ==============================================================================
+# 统一智能安装函数 (推荐使用)
+# ==============================================================================
 
+# install_packages()
+# @description: 智能地安装一个或多个软件包。它会自动检测包的来源（官方仓库或 AUR），
+#                并使用合适的包管理器（pacman, yay, paru）进行高效的批量安装。
+# @param: $@ (strings) - 一个或多个要安装的软件包名称。
+# @returns: 0 如果所有请求的包都成功安装或已安装, 1 如果有任何包最终安装失败。
+install_packages() {
+    if [ "$#" -eq 0 ]; then
+        log_warn "install_packages: 未指定任何要安装的软件包。"
+        return 0
+    fi
+
+    local all_pkgs_to_process=("$@")
+    local pkgs_to_install=()
+    local pkgs_already_installed=()
+
+    display_header_section "智能软件包安装程序" "box"
+    log_info "请求安装的软件包 (${#all_pkgs_to_process[@]} 个): ${all_pkgs_to_process[*]}"
+
+    # --- 步骤 1: 检查哪些包已经安装 ---
+    log_info "步骤 1/4: 检查软件包安装状态..."
+    for pkg in "${all_pkgs_to_process[@]}"; do
+        if is_package_installed "$pkg"; then
+            pkgs_already_installed+=("$pkg")
+        else
+            pkgs_to_install+=("$pkg")
+        fi
+    done
+
+    if [ ${#pkgs_already_installed[@]} -gt 0 ]; then
+        log_success "以下软件包已安装，将跳过 (${#pkgs_already_installed[@]} 个): ${pkgs_already_installed[*]}"
+    fi
+
+    if [ ${#pkgs_to_install[@]} -eq 0 ]; then
+        log_success "所有请求的软件包均已安装。无需任何操作。"
+        return 0
+    fi
+
+    log_notice "将要尝试安装以下未安装的软件包 (${#pkgs_to_install[@]} 个): ${pkgs_to_install[*]}"
+
+    # --- 步骤 2: 优先尝试用 pacman 一次性安装所有包 (高效) ---
+    log_info "步骤 2/4: 尝试从官方仓库 (pacman) 一次性安装..."
+    local pacman_output
+    local pacman_failed=false
+    
+    # 注意：我们直接调用 pacman，而不是 install_pacman_pkg，因为我们需要捕获其原始输出进行解析。
+    # `install_pacman_pkg` 内部有自己的日志逻辑，会干扰我们的解析。
+    # 使用 `|| pacman_failed=true` 来捕获非零退出码，防止 `set -e` 中止脚本。
+    pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1) || pacman_failed=true
+
+    if ! $pacman_failed; then
+        log_success "所有请求的软件包均已通过 pacman 成功安装！"
+        log_info "Pacman 输出:\n$pacman_output"
+        return 0
+    fi
+    
+    # --- 步骤 3: 解析 pacman 输出，找出失败的包 ---
+    log_info "步骤 3/4: pacman 未能安装部分软件包，正在解析失败列表..."
+    local pkgs_failed_pacman=()
+    # pacman 失败时通常会输出 "error: target not found: <package>"
+    # 我们用这个模式来精确地找出哪些包需要交由 AUR 助手处理。
+    pkgs_failed_pacman=($(echo "$pacman_output" | grep -oP 'target not found: \K\S+'))
+
+    if [ ${#pkgs_failed_pacman[@]} -eq 0 ]; then
+        # 如果 pacman 失败了，但我们没有解析出任何“未找到”的包，
+        # 那说明是其他严重错误（如网络问题、GPG密钥问题、文件冲突等）。
+        log_error "Pacman 安装失败，但原因并非'未找到目标'。这通常是严重错误。"
+        log_error "请检查 pacman 输出以确定问题:"
+        # 将原始输出以错误级别记录，方便调试
+        log_error "$(echo -e "\n${pacman_output}")"
+        return 1
+    fi
+    
+    # 从失败列表中排除那些实际上成功了的包（如果有的话）
+    local successfully_installed_by_pacman=()
+    for pkg in "${pkgs_to_install[@]}"; do
+        # 如果一个包不在失败列表里，那它就是成功了
+        if ! [[ " ${pkgs_failed_pacman[*]} " =~ " ${pkg} " ]]; then
+            successfully_installed_by_pacman+=("$pkg")
+        fi
+    done
+
+    if [ ${#successfully_installed_by_pacman[@]} -gt 0 ]; then
+         log_success "已通过 pacman 成功安装 (${#successfully_installed_by_pacman[@]} 个): ${successfully_installed_by_pacman[*]}"
+    fi
+
+    log_notice "以下软件包在官方仓库未找到，将尝试从 AUR 安装 (${#pkgs_failed_pacman[@]} 个): ${pkgs_failed_pacman[*]}"
+
+    # --- 步骤 4: 对于 pacman 失败的包，回退到 AUR 助手 ---
+    local aur_helper
+    aur_helper=$(_get_installed_aur_helper) # _get_installed_aur_helper 是我们已有的内部函数
+
+    if [ -z "$aur_helper" ]; then
+        log_error "未找到 AUR 助手 (yay 或 paru)。无法安装以下 AUR 包: ${pkgs_failed_pacman[*]}"
+        log_error "请先运行 '安装 AUR 助手' 模块。"
+        return 1
+    fi
+    
+    log_info "步骤 4/4: 使用检测到的 AUR 助手 '$aur_helper' 安装剩余的包..."
+    
+    # 使用 run_as_user 来安全地执行 AUR 助手的安装命令
+    if run_as_user "$aur_helper -S --noconfirm --needed ${pkgs_failed_pacman[*]}"; then
+        log_success "已通过 '$aur_helper' 成功安装 (${#pkgs_failed_pacman[@]} 个): ${pkgs_failed_pacman[*]}"
+    else
+        log_error "使用 '$aur_helper' 安装部分或全部 AUR 软件包失败。"
+        log_error "请检查上面的日志以获取 '$aur_helper' 的详细输出。"
+        return 1
+    fi
+
+    log_success "所有软件包安装流程执行完毕！"
+    return 0
+}
 # 标记此初始化脚本已被加载 (不导出)
 __PACKAGE_MANAGEMENT_UTILS_SOURCED__="true"
 log_debug "Package management utilities sourced and available (v1.0.3)."
