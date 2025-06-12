@@ -85,9 +85,9 @@ _get_installed_aur_helper() {
 refresh_pacman_database() {
     log_info "Executing 'pacman -Syy' to refresh Pacman database..."
     local output
-    if output=$(pacman -Syy --noconfirm 2>&1); then
+    if output=$(pacman -Syy --noconfirm 2>&1 | tee /dev/stderr); then
         log_success "Pacman database refreshed successfully."
-        log_info "Pacman -Syy output:$(echo -e "\n${output}")"
+        log_debug "Pacman -Syy output:$(echo -e "\n${output}")"
         return 0
     else
         log_error "Failed to refresh Pacman database."
@@ -116,9 +116,9 @@ sync_system_and_refresh_db() {
     log_info "Executing 'pacman -Syyu' to synchronize system packages and refresh database..."
 
     while [ "$retry_count" -lt "$max_retries" ]; do
-        if output=$(pacman -Syyu --noconfirm 2>&1); then
+        if output=$(pacman -Syyu --noconfirm 2>&1 | tee /dev/stderr); then
             log_success "System synchronized and database refreshed successfully."
-            log_info "Pacman -Syyu output:$(echo -e "\n${output}")"
+            log_debug "Pacman -Syyu output:$(echo -e "\n${output}")"
             success=0
             break
         else
@@ -256,10 +256,13 @@ install_pacman_pkg() {
     local pacman_output
     refresh_pacman_database
     # 直接执行 pacman，不加 sudo，因为框架已保证 root 权限
-    if pacman_output=$(pacman -S --noconfirm --needed $pkgs_to_install 2>&1); then
+    # 原始代码（输出被重定向到变量）
+    # pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1)
+    # 改进后的代码（同时显示和保存输出）
+    if pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1 | tee /dev/stderr); then
         log_success "Official packages installed successfully: '$pkgs_to_install'."
         # 使用 log_debug 记录详细输出，避免刷屏，但在需要时可查
-        log_info "Pacman -S output:\n$pacman_output"
+        log_debug "Pacman -S output:\n$pacman_output"
         return 0
     else
         # 错误处理，可以使用框架的 handle_error 函数，它会记录错误并退出
@@ -365,6 +368,7 @@ install_paru_pkg() {
 # install_packages()
 # @description: 智能地安装一个或多个软件包。它会自动检测包的来源（官方仓库或 AUR），
 #                并使用合适的包管理器（pacman, yay, paru）进行高效的批量安装。
+#                此函数可以接受多个参数 (pkg1 pkg2 ...)，也可以接受一个包含空格的字符串 ("pkg1 pkg2 ...")。
 # @param: $@ (strings) - 一个或多个要安装的软件包名称。
 # @returns: 0 如果所有请求的包都成功安装或已安装, 1 如果有任何包最终安装失败。
 install_packages() {
@@ -373,13 +377,27 @@ install_packages() {
         return 0
     fi
 
-    local all_pkgs_to_process=("$@")
+    local all_pkgs_to_process=()
+
+    # =================================================================
+    # 智能输入处理 (核心改进)
+    # =================================================================
+    # 如果只传入一个参数，并且该参数包含空格，则将其视为一个待分割的字符串。
+    # 否则，将所有传入的参数视为一个包名列表。
+    if [ "$#" -eq 1 ] && [[ "$1" == *" "* ]]; then
+        log_debug "检测到单一字符串输入，正在解析为数组..."
+        read -r -a all_pkgs_to_process <<< "$1"
+    else
+        all_pkgs_to_process=("$@")
+    fi
+    # =================================================================
+
     local pkgs_to_install=()
     local pkgs_already_installed=()
 
     display_header_section "智能软件包安装程序" "box"
     log_info "请求安装的软件包 (${#all_pkgs_to_process[@]} 个): ${all_pkgs_to_process[*]}"
-
+    refresh_pacman_database
     # --- 步骤 1: 检查哪些包已经安装 ---
     log_info "步骤 1/4: 检查软件包安装状态..."
     for pkg in "${all_pkgs_to_process[@]}"; do
@@ -409,11 +427,12 @@ install_packages() {
     # 注意：我们直接调用 pacman，而不是 install_pacman_pkg，因为我们需要捕获其原始输出进行解析。
     # `install_pacman_pkg` 内部有自己的日志逻辑，会干扰我们的解析。
     # 使用 `|| pacman_failed=true` 来捕获非零退出码，防止 `set -e` 中止脚本。
-    pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1) || pacman_failed=true
+    # pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1) || pacman_failed=true
+    pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1 | tee /dev/stderr) || pacman_failed=true
 
     if ! $pacman_failed; then
         log_success "所有请求的软件包均已通过 pacman 成功安装！"
-        log_info "Pacman 输出:\n$pacman_output"
+        log_debug "Pacman 输出:\n$pacman_output"
         return 0
     fi
     
