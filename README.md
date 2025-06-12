@@ -14,6 +14,7 @@ archlinux-post-install-scripts-v1.0/
     ├── lib/
     │   ├── environment_setup.sh
     │   ├── menu_framework.sh
+    │   ├── package_management_utils.sh
     │   └── utils.sh
     ├── assets/
     │   ├── pacman/
