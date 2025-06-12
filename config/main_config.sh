@@ -126,9 +126,10 @@ export NETWORK_MANAGER_TYPE="systemd-networkd" # 默认网络管理器类型 (�
 export SYSTEMD_NETWORKD_CONFIG_DIR="/etc/systemd/network"
 
 # --- 软件安装默认列表 (注意：Bash 数组无法通过 'export' 继承到子进程，仅在当前 shell 可用) ---
-declare -a PKG_ESSENTIAL_SOFTWARE=("base-devel" "git" "curl" "wget" "unzip" "tar" "htop" "neofetch" "fastfetch")
-declare -a PKG_COMMON_SOFTWARE=("firefox" "vlc" "thunderbird" "gimp" "inkscape" "code")
-declare -a PKG_SPECIFIC_APPS=()
+# declare -a PKG_ESSENTIAL_SOFTWARE=("base-devel" "git" "curl" "wget" "unzip" "tar" "htop" "neofetch" "fastfetch")
+# --- 软件安装列表 (从外部文件读取) ---
+# 定义存放软件包列表文件的目录，路径相对于 ASSETS_DIR
+export PKG_LISTS_DIR_RELATIVE_TO_ASSETS="package_lists"
 
 # --- 其他通用配置 (可配置的默认值) ---
 export CLEAN_BUILD_CACHE="true"

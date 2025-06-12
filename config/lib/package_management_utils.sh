@@ -216,7 +216,20 @@ clean_aur_cache() {
     return 0
 }
 
-# 在 config/lib/package_management_utils.sh 中
+
+# _read_pkg_list_from_file()
+# @description: 从给定的文件中读取软件包列表，过滤注释和空行，并返回一个用空格分隔的字符串。
+# @param: $1 (string) - 软件包列表文件的完整路径。
+# @returns: string - 用空格分隔的软件包名称字符串。
+_read_pkg_list_from_file() {
+    local file_path="$1"
+    if [[ ! -f "$file_path" || ! -r "$file_path" ]]; then
+        log_warn "软件包列表文件未找到或不可读: '$file_path'。跳过。"
+        return
+    fi
+    # 使用 grep 过滤掉以#开头的行和空行，然后用 tr 将换行符转换为空格
+    grep -vE '^\s*#|^\s*$' "$file_path" | tr '\n' ' '
+}
 
 # install_pacman_pkg()
 # @description: 使用 Pacman 安装一个或多个官方仓库的软件包。
