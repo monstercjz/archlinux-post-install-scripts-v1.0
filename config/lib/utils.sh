@@ -1186,7 +1186,7 @@ run_as_user() {
     local cmd_string="$*"
     # 检查是否是 grep -q 命令
     local quiet_mode=false
-    if [[ "$cmd_string" == "grep -q "* ]]; then
+    if [[ "$cmd_string" == "grep -q "* ]] || [[ "$cmd_string" == "test "* ]] || [[ "$cmd_string" == "["* ]]; then
         quiet_mode=true
     fi
 

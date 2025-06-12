@@ -2,26 +2,21 @@
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
 # 文件: config/modules/02_user_environment/02_configure_shell.sh
-# 版本: 1.3.0 (新增从模板文件快速配置的功能)
+# 版本: 2.1.0 (修正并加强了文件权限的检测与恢复逻辑)
 # 日期: 2025-06-12
-# 描述: 配置 Zsh Shell 环境，包括 Oh My Zsh, Powerlevel10k 主题及常用插件。
-#       提供“逐步配置”和“从模板快速配置”两种模式。
+# 描述: 提供一个全面的 Zsh Shell 环境配置工具箱。
 # ------------------------------------------------------------------------------
 # 核心功能:
-# - 检查系统环境和 Zsh 相关组件的安装状态。
-# - 安装 Zsh, Oh My Zsh, fzf, bat, eza 等核心工具。
-# - 安装 Powerlevel10k 推荐字体 (MesloLGS NF)。
-# - 安装 zsh-syntax-highlighting, zsh-autosuggestions, fzf-tab 等插件。
-# - 使用安全的文件更新策略，自动配置 .zshrc 文件。
-# - 提供详细的安装后验证和用户指导。
+# - 提供一个模块内部的菜单，允许用户独立、多次执行各项 Zsh 相关操作。
+# - 安装/更新 Zsh 核心组件。
+# - 提供两种 .zshrc 配置方式：逐步安全配置和从模板快速覆盖。
+# - 提供从模板文件恢复 .p10k.zsh 配置的功能。
+# - 关键修正: 在所有文件覆盖和移动操作中，严格保留目标文件的原始权限。
 # ------------------------------------------------------------------------------
-# 版本 1.3.0 优化内容:
-# - **新增配置模式**: 用户可以选择“逐步、安全地配置”或“从预设模板文件快速覆盖”。
-# - **安全事务模型**: 所有对 .zshrc 的修改都在一个临时副本上进行，成功后才替换原始文件，杜绝文件丢失风险。
-# - **职责分离**: 将庞大的配置函数拆分为多个独立的、职责单一的小函数。
-# - **细化交互**: 当所有组件已安装时，提供“强制重装”、“仅配置”、“取消”选项。
-# - **动态配置**: .zshrc 中的插件列表会根据实际安装成功的组件动态生成。
-# - **优雅的错误处理**: Oh My Zsh 安装失败时，会跳过相关插件/主题安装，而不是直接退出。
+# 变更记录:
+# v2.0.0 - 2025-06-12 - 完全重构为菜单驱动模式。
+# v2.1.0 - 2025-06-12 - **根据用户反馈，重新引入并加强了文件权限的检测与恢复逻辑，
+#                        确保在文件操作后权限不被意外更改，提升安全性。**
 # ==============================================================================
 
 # --- 脚本顶部引导块 START ---
@@ -51,8 +46,10 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 全局变量和定义 (模块作用域)
 # ==============================================================================
 ZSHRC_FILE="${ORIGINAL_HOME}/.zshrc"
+P10K_CONFIG_FILE="${ORIGINAL_HOME}/.p10k.zsh"
 ZSH_CUSTOM_DIR="${ORIGINAL_HOME}/.oh-my-zsh/custom"
 ZSHRC_TEMPLATE_PATH="${ASSETS_DIR}/shell/zshrc.template"
+P10K_TEMPLATE_PATH="${ASSETS_DIR}/shell/p10k.zsh.template"
 
 declare -A SOFTWARE_TO_CHECK=(
     ["zsh"]="zsh" ["fzf"]="fzf" ["bat"]="bat" ["eza"]="eza"
@@ -84,7 +81,6 @@ _is_font_installed() { find "${ORIGINAL_HOME}/.local/share/fonts" /usr/local/sha
 # ==============================================================================
 
 # _perform_checks()
-# @description 检查所有软件和组件的安装状态，并与用户交互决定安装模式
 _perform_checks() {
     display_header_section "环境检查" "default" 80
     log_info "开始检查系统环境和 Zsh 相关组件..."
@@ -101,28 +97,13 @@ _perform_checks() {
     log_info "检查结果汇总:"; echo "--------------------------------------------------"; for key in "${!SOFTWARE_TO_CHECK[@]}" "${!COMPONENTS_TO_CHECK[@]}"; do printf "  %-30s: %s\n" "$key" "${CHECK_RESULTS[$key]}"; done; echo "--------------------------------------------------"
 
     if $all_installed; then
-        log_success "所有组件似乎都已安装。"
-        while true; do
-            read -rp "$(echo -e "${COLOR_YELLOW}请选择操作: [1] 强制重装 [2] 仅配置 [c] 取消: ${COLOR_RESET}")" choice; echo
-            case "$choice" in
-                1) INSTALL_MODE="force"; return 1 ;;
-                2) INSTALL_MODE="skip"; return 0 ;;
-                c|C) log_info "用户取消操作。"; exit 0 ;;
-                *) log_warn "无效输入。" ;;
-            esac
-        done
+        return 0 # 返回0表示全部安装
     else
-        log_notice "部分组件未安装。"
-        if _confirm_action "是否安装/更新缺失的组件？ (选择'n'将只配置已安装部分)" "y"; then
-            INSTALL_MODE="missing"; return 1
-        else
-            log_info "用户选择跳过安装，仅执行配置检查。"; INSTALL_MODE="skip"; return 0
-        fi
+        return 1 # 返回1表示有缺失
     fi
 }
 
 # _install_fonts()
-# @description 下载并安装 MesloLGS NF 字体
 _install_fonts() {
     display_header_section "安装字体 (MesloLGS NF)" "default" 80
     local font_dir="${ORIGINAL_HOME}/.local/share/fonts"
@@ -135,7 +116,7 @@ _install_fonts() {
     )
     local all_success=true
     for font_name in "${!FONT_URLS[@]}"; do
-        if [ -f "$font_dir/$font_name" ] && [[ "$INSTALL_MODE" != "force" ]]; then
+        if run_as_user "[ -f '$font_dir/$font_name' ]" && [[ "$INSTALL_MODE" != "force" ]]; then
             log_info "字体 '$font_name' 已存在，跳过下载。"; continue
         fi
         log_info "下载字体: $font_name"
@@ -151,17 +132,15 @@ _install_fonts() {
 }
 
 # _run_installation()
-# @description 执行所有必要的安装操作
 _run_installation() {
-    display_header_section "安装 Zsh 组件" "box" 80
     local pkgs_to_install=(); for key in "${!SOFTWARE_TO_CHECK[@]}"; do if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS[$key]}" == "未安装" ]]; then pkgs_to_install+=("${SOFTWARE_TO_CHECK[$key]}"); fi; done
-    if [ ${#pkgs_to_install[@]} -gt 0 ]; then log_info "将通过 pacman 安装以下软件包: ${pkgs_to_install[*]}"; install_pacman_pkg "${pkgs_to_install[@]}"; else log_info "无需通过 pacman 安装新软件包。"; fi
+    if [ ${#pkgs_to_install[@]} -gt 0 ]; then log_info "将通过 pacman 安装以下软件包: ${pkgs_to_install[*]}"; if ! install_pacman_pkg "${pkgs_to_install[@]}"; then log_error "部分软件包安装失败，请检查日志。"; fi; else log_info "无需通过 pacman 安装新软件包。"; fi
     if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['meslolgs-font']}" == "未安装" ]]; then _install_fonts; fi
 
     local omz_installed_successfully=false
     if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['oh-my-zsh']}" == "未安装" ]]; then
         log_info "安装 Oh My Zsh..."; local oh_my_zsh_dir="${COMPONENTS_TO_CHECK['oh-my-zsh']}"
-        if [ -d "$oh_my_zsh_dir" ]; then log_warn "Oh My Zsh 目录已存在，将删除后重新安装。"; rm -rf "$oh_my_zsh_dir"; fi
+        if run_as_user "[ -d '$oh_my_zsh_dir' ]"; then log_warn "Oh My Zsh 目录已存在，将删除后重新安装。"; run_as_user "rm -rf '$oh_my_zsh_dir'"; fi
         local install_script_url="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
         if run_as_user "sh -c \"\$(curl -fsSL $install_script_url)\" '' --unattended --keep-zshrc"; then omz_installed_successfully=true; log_success "Oh My Zsh 安装成功。"; else log_error "Oh My Zsh 安装失败！将跳过所有插件和主题的安装。"; fi
     else
@@ -175,14 +154,42 @@ _run_installation() {
         for plugin in "${!PLUGINS_TO_INSTALL[@]}"; do
             if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS[$plugin]}" == "未安装" ]]; then
                 local plugin_dir="${ZSH_CUSTOM_DIR}/plugins/${plugin}"; log_info "安装插件: $plugin"
-                if [ -d "$plugin_dir" ]; then rm -rf "$plugin_dir"; fi
+                if run_as_user "[ -d '$plugin_dir' ]"; then run_as_user "rm -rf '$plugin_dir'"; fi
                 if ! run_as_user "git clone --depth=1 '${PLUGINS_TO_INSTALL[$plugin]}' '$plugin_dir'"; then log_error "安装插件 '$plugin' 失败！"; else log_success "插件 '$plugin' 安装成功。"; fi
             fi
         done
         if [[ "$INSTALL_MODE" == "force" ]] || [[ "${CHECK_RESULTS['powerlevel10k']}" == "未安装" ]]; then
             local theme_dir="${ZSH_CUSTOM_DIR}/themes/powerlevel10k"; log_info "安装主题: Powerlevel10k"
-            if [ -d "$theme_dir" ]; then rm -rf "$theme_dir"; fi
+            if run_as_user "[ -d '$theme_dir' ]"; then run_as_user "rm -rf '$theme_dir'"; fi
             if ! run_as_user "git clone --depth=1 '$p10k_repo' '$theme_dir'"; then log_error "安装 Powerlevel10k 失败！"; else log_success "Powerlevel10k 主题安装成功。"; fi
+        fi
+    fi
+}
+
+# _run_installation_flow()
+_run_installation_flow() {
+    display_header_section "安装/更新 Zsh 核心组件" "box"
+    
+    if _perform_checks; then
+        log_success "所有组件均已安装。"
+        if _confirm_action "是否要强制重装所有组件？" "n" "${COLOR_RED}"; then
+            INSTALL_MODE="force"
+            _run_installation
+            log_success "强制重装完成。"
+            _run_post_install_checks
+        else
+            log_info "用户取消强制重装。"
+        fi
+    else
+        log_notice "部分组件未安装。"
+        if _confirm_action "是否安装/更新缺失的组件？" "y"; then
+            INSTALL_MODE="missing"
+            _run_installation
+            log_success "安装/更新完成。"
+            _run_post_install_checks
+            
+        else
+            log_info "用户选择跳过安装。"
         fi
     fi
 }
@@ -195,12 +202,12 @@ _configure_from_template() {
     if [ ! -f "$ZSHRC_TEMPLATE_PATH" ]; then
         log_error "模板文件未找到: $ZSHRC_TEMPLATE_PATH"
         log_error "无法进行快速配置。请检查项目文件是否完整。"
-        return 1
+        return 0
     fi
 
     log_warn "此操作将完全覆盖您现有的 .zshrc 文件！"
     if ! _confirm_action "您确定要从模板文件覆盖 '$ZSHRC_FILE' 吗？" "n" "${COLOR_RED}"; then
-        log_info "用户取消了从模板覆盖的操作。"; return 1
+        log_info "用户取消了从模板覆盖的操作。"; return 0
     fi
     # **新增：获取原始文件的权限**
     local original_perms
@@ -247,7 +254,12 @@ _configure_from_template() {
 # @description 主协调函数，使用安全的文件更新策略来调用所有 .zshrc 的配置任务。
 _run_configuration() {
     display_header_section "逐步配置 .zshrc 文件" "box" 80
-    
+    if _confirm_action "是否已经检查对应软件都安装了没有？" "n" "${COLOR_RED}"; then
+            log_notice "用户确认软件已经全部安装，开始配置"
+    else
+            log_warn "用户不知道是否安装了软件，不再继续配置"
+            return 0
+    fi
     # --- 步骤 1: 前置检查、获取原始权限、备份 ---
     if [ ! -f "$ZSHRC_FILE" ]; then
         if [ ! -d "${ORIGINAL_HOME}/.oh-my-zsh/templates" ]; then log_error "Oh My Zsh 模板目录不存在，无法创建 .zshrc。"; return 1; fi
@@ -314,7 +326,6 @@ _run_configuration() {
 # ==============================================================================
 # .zshrc 具体配置函数 (接收临时文件路径作为参数)
 # ==============================================================================
-
 _configure_p10k_instant_prompt() {
     local target_file="$1"
     log_info "检查并配置 Powerlevel10k Instant Prompt..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
@@ -345,14 +356,14 @@ EOF
     else
       log_info "Instant Prompt 配置已存在，跳过。"
     fi
+    return 0
 }
-
 _configure_zsh_theme() {
     local target_file="$1"
     log_info "检查并配置 Zsh 主题..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
     run_as_user "sed -i 's|^\\s*ZSH_THEME=.*|ZSH_THEME=\"powerlevel10k/powerlevel10k\"|' '$target_file'"
+    return 0
 }
-
 _configure_plugins_line() {
     local target_file="$1"
     log_info "检查并配置 Oh My Zsh 插件列表..."; local desired_plugins=("git" "sudo" "z")
@@ -366,8 +377,8 @@ _configure_plugins_line() {
     else
         run_as_user "echo -e '\n$plugins_str' >> '$target_file'"
     fi
+    return 0
 }
-
 _configure_fzf_tab() {
     local target_file="$1"
     log_info "检查并配置 fzf-tab 高级选项..."; if ! _is_omz_plugin_installed "fzf-tab"; then log_info "fzf-tab 未安装，跳过。"; return 0; fi
@@ -402,8 +413,8 @@ EOF
     else
       log_info "fzf-tab 高级配置已存在，跳过。"
     fi
+    return 0
 }
-
 _configure_aliases() {
     local target_file="$1"
     log_info "检查并配置常用别名和环境变量..."
@@ -433,15 +444,116 @@ export BAT_THEME=\"TwoDark\""
 export FZF_DEFAULT_OPTS=\"--height 40% --layout=reverse --border\""
         run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$fzf_opts_block' >> '$target_file'"
     fi
+    return 0
 }
-
 _configure_p10k_init() {
     local target_file="$1"
     log_info "检查并配置 Powerlevel10k 初始化脚本..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
     local p10k_init_block="# To customize prompt, run \`p10k configure\` or edit ~/.p10k.zsh.\n[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
     if ! run_as_user "grep -q 'source ~/.p10k.zsh' '$target_file'"; then run_as_user "echo -e '\n$p10k_init_block' >> '$target_file'"; fi
+    return 0
 }
 
+
+
+# _set_default_shell()
+_set_default_shell() {
+    display_header_section "将 Zsh 设置为默认 Shell"
+    local zsh_path
+    zsh_path=$(command -v zsh)
+    if [ -z "$zsh_path" ]; then
+        log_error "未找到 Zsh 可执行文件。请先安装 Zsh。"; return 1
+    fi
+    
+    log_info "将为用户 '$ORIGINAL_USER' 设置默认 Shell 为: $zsh_path"
+    if ! _confirm_action "是否继续？" "y"; then
+        log_info "用户取消操作。"; return 0
+    fi
+
+    if chsh -s "$zsh_path" "$ORIGINAL_USER"; then
+        log_success "默认 Shell 设置成功！"; log_notice "更改需要您重新登录才能完全生效。"
+    else
+        log_error "chsh 命令执行失败。无法更改默认 Shell。"; return 1
+    fi
+}
+
+# _run_p10k_configure()
+# @description 启动 Powerlevel10k 的配置向导
+_run_p10k_configure() {
+    display_header_section "运行 Powerlevel10k 配置向导"
+    if ! _is_p10k_theme_installed; then
+        log_error "Powerlevel10k 主题未安装。请先安装组件。"; return 1
+    fi
+
+    # 检查 .zshrc 是否存在，虽然不再直接 source 它，但一个正常的 Zsh 环境通常需要它
+    if ! run_as_user "[ -f '$ZSHRC_FILE' ]"; then
+        log_warn "用户的 .zshrc 文件 '$ZSHRC_FILE' 不存在。继续操作可能导致 p10k 配置无法正确保存。建议先运行 .zshrc 配置选项。"
+        if ! _confirm_action "仍然继续吗？" "n" "${COLOR_RED}"; then
+            return 1
+        fi
+    fi
+
+    log_info "即将为用户 '$ORIGINAL_USER' 启动 Powerlevel10k 配置向导。"; 
+    log_notice "请跟随终端中的提示完成配置。"
+    
+    # =================================================================
+    # 最终解决方案 v6 (采纳用户方案):
+    # 直接 source 包含 p10k 函数定义的 theme 文件，然后执行 p10k configure。
+    # 这是最直接、最精确、最不可能失败的方法。
+    # =================================================================
+    
+    local p10k_theme_file="${ZSH_CUSTOM_DIR}/themes/powerlevel10k/powerlevel10k.zsh-theme"
+    local command_to_run="source '${p10k_theme_file}' && p10k configure"
+    
+    log_debug "Executing command via sudo: sudo -u $ORIGINAL_USER -- zsh -c \"$command_to_run\""
+
+    if sudo -u "$ORIGINAL_USER" -- zsh -c "$command_to_run"; then
+        log_success "Powerlevel10k 配置向导执行完毕。"
+    else
+        local exit_code=$?
+        if [ "$exit_code" -eq 130 ]; then
+            log_warn "Powerlevel10k 配置向导被用户取消 (Ctrl+C)。"
+            return 0
+        else
+            log_error "p10k configure 启动失败或异常退出 (退出码: $exit_code)。"
+            log_error "请确保 Powerlevel10k 已通过 'git clone' 正确安装在 '${ZSH_CUSTOM_DIR}/themes/' 目录下。"
+            return 1
+        fi
+    fi
+}
+
+# _restore_p10k_from_template()
+_restore_p10k_from_template() {
+    display_header_section "从模板恢复 .p10k.zsh" "box"
+
+    if [ ! -f "$P10K_TEMPLATE_PATH" ]; then
+        log_error "P10K 模板文件未找到: $P10K_TEMPLATE_PATH"; return 1
+    fi
+
+    log_warn "此操作将完全覆盖您现有的 .p10k.zsh 文件！"
+    if ! _confirm_action "您确定要从模板文件覆盖 '$P10K_CONFIG_FILE' 吗？" "n" "${COLOR_RED}"; then
+        log_info "用户取消了恢复操作。"; return 0
+    fi
+    
+    local original_perms="644"
+    if run_as_user "[ -f '$P10K_CONFIG_FILE' ]"; then
+        original_perms=$(run_as_user "stat -c %a '$P10K_CONFIG_FILE'")
+        log_notice "记录到 '$P10K_CONFIG_FILE' 的原始权限为: $original_perms"
+    fi
+
+    if ! create_backup_and_cleanup "$P10K_CONFIG_FILE" "p10k_config"; then
+        log_error "备份 .p10k.zsh 失败。中止操作。"; return 1
+    fi
+
+    log_info "正在从 '$P10K_TEMPLATE_PATH' 复制配置..."
+    if cp -f "$P10K_TEMPLATE_PATH" "$P10K_CONFIG_FILE" && \
+       chown "$ORIGINAL_USER:$ORIGINAL_USER" "$P10K_CONFIG_FILE" && \
+       chmod "$original_perms" "$P10K_CONFIG_FILE"; then
+        log_success "成功使用模板恢复 .p10k.zsh 配置并恢复权限为 $original_perms。"
+    else
+        log_error "从模板恢复 .p10k.zsh 失败！"; return 1
+    fi
+}
 
 # ==============================================================================
 # 安装后指导函数
@@ -462,67 +574,51 @@ _run_post_install_checks() {
 
 
 # ==============================================================================
-# 主函数
+# 主函数 (菜单驱动)
 # ==============================================================================
 
 main() {
-    display_header_section "Zsh & Oh My Zsh & P10k 自动配置" "box" 80
-    log_info "本模块将为用户 '$ORIGINAL_USER' 全面配置 Zsh 环境。"
-    log_notice "所有操作将在 '$ORIGINAL_HOME' 目录下进行。"
+    display_header_section "Zsh 环境配置工具箱" "box" 80
 
-    if ! _confirm_action "是否开始 Zsh 环境配置？" "y"; then
-        log_warn "用户取消操作。"; exit 0
-    fi
-
-    # --- 安装阶段 ---
-    if _perform_checks; then
-        if [[ "$INSTALL_MODE" == "skip" ]]; then
-            log_info "环境检查完毕，跳过安装步骤。"
-        else
-            log_info "环境检查完毕，所有组件已安装。"
-        fi
-    else
-        if [[ -n "$INSTALL_MODE" ]]; then
-            _run_installation
-        fi
-    fi
-
-    # --- 配置阶段 ---
-    local config_choice
     while true; do
-        log_info "请选择 .zshrc 的配置方式:"
-        echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 逐步、安全地修改现有 .zshrc 文件 (推荐)"
-        echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} 从预设模板快速覆盖 .zshrc 文件 (警告: 将丢失现有配置)"
-        echo -e "  ${COLOR_RED}c.${COLOR_RESET} 跳过配置"
-        read -rp "$(echo -e "${COLOR_YELLOW}请输入您的选择 (1/2/c): ${COLOR_RESET}")" config_choice; echo
+        display_header_section "Zsh 配置主菜单" "default" 80 "${COLOR_PURPLE}"
+        echo -e "  --- 安装与更新 ---"
+        echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 安装/更新 所有 Zsh 核心组件"
+        echo -e "\n  --- 配置文件管理 ---"
+        echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} 逐步、安全地配置 .zshrc"
+        echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} 从模板快速覆盖 .zshrc"
+        echo -e "  ${COLOR_YELLOW}4.${COLOR_RESET} 从模板恢复 .p10k.zsh (Powerlevel10k 外观)"
+        echo -e "\n  --- 实用工具 ---"
+        echo -e "  ${COLOR_GREEN}5.${COLOR_RESET} 将 Zsh 设为当前用户的默认 Shell"
+        echo -e "  ${COLOR_GREEN}6.${COLOR_RESET} 运行 Powerlevel10k 图形化配置向导"
+        echo ""
+        echo -e "  ${COLOR_RED}0.${COLOR_RESET} 完成并返回上一级菜单"
+        echo -e "${COLOR_PURPLE}--------------------------------------------------------------------------------${COLOR_RESET}"
         
-        case "$config_choice" in
-            1)
-                if ! _run_configuration; then
-                    handle_error "逐步配置 .zshrc 过程中发生严重错误，已中止。" 1
-                fi
-                break
-                ;;
-            2)
-                if ! _configure_from_template; then
-                     handle_error "从模板配置 .zshrc 过程中发生错误，已中止。" 1
-                fi
-                break
-                ;;
-            c|C)
-                log_info "用户选择跳过 .zshrc 配置。"
+        local choice
+        read -rp "$(echo -e "${COLOR_YELLOW}请输入您的选择 [1-6, 0]: ${COLOR_RESET}")" choice
+        echo
+
+        case "$choice" in
+            1) _run_installation_flow ;;
+            2) _run_configuration ;;
+            3) _configure_from_template ;;
+            4) _restore_p10k_from_template ;;
+            5) _set_default_shell ;;
+            6) _run_p10k_configure ;;
+            0)
+                log_info "Zsh 配置结束。"
                 break
                 ;;
             *)
-                log_warn "无效输入，请输入 1, 2 或 c。"
+                log_warn "无效选择: '$choice'。请重新输入。"
                 ;;
         esac
+        
+        if [[ "$choice" != "0" ]]; then
+            read -rp "$(echo -e "${COLOR_YELLOW}按 Enter 键返回 Zsh 配置主菜单...${COLOR_RESET}")"
+        fi
     done
-    
-    # --- 指导阶段 ---
-    _run_post_install_checks
-
-    log_success "Zsh 环境配置模块执行完毕！"
 }
 
 # --- 脚本入口 ---
