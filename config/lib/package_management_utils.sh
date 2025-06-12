@@ -259,7 +259,7 @@ install_pacman_pkg() {
     if pacman_output=$(pacman -S --noconfirm --needed $pkgs_to_install 2>&1); then
         log_success "Official packages installed successfully: '$pkgs_to_install'."
         # 使用 log_debug 记录详细输出，避免刷屏，但在需要时可查
-        log_debug "Pacman -S output:\n$pacman_output"
+        log_info "Pacman -S output:\n$pacman_output"
         return 0
     else
         # 错误处理，可以使用框架的 handle_error 函数，它会记录错误并退出
