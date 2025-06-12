@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/03_user_environment/04_configure_sudo.sh
+# 文件: config/modules/02_user_environment/01_configure_sudo.sh
 # 版本: 1.0.1 (增加 sudo 配置文件备份功能)
 # 日期: 2025-06-11
 # 描述: 为当前非 root 用户配置 sudo 权限，提供免密或需密码选项。

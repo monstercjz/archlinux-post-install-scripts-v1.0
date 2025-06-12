@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/01_system_base/03_configure_ssh.sh
+# 文件: config/modules/02_user_environment/04_configure_ssh.sh
 # 版本: 1.0.0 (完全重构，适配项目框架)
 # 日期: 2025-06-12
 # 描述: 提供一个全面的 SSH 服务器 (OpenSSH) 配置流程。

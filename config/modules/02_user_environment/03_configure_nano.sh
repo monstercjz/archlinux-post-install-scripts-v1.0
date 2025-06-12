@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/03_user_environment/03_configure_nano.sh
+# 文件: config/modules/02_user_environment/03_configure_nano.sh
 # 版本: 1.1.0 (引入内部菜单，分离配置选项)
 # 日期: 2025-06-12
 # 描述: 为当前非 root 用户提供一个全面的 Nano 编辑器配置流程。

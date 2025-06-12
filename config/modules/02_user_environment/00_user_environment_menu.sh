@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/system_base_menu.sh
+# 文件: config/user_environment_menu.sh
 # 版本: 1.0.6 (适配通用菜单框架和多模块路径)
 # 日期: 2025-06-08
 # 描述: Arch Linux 后安装脚本的主菜单。
@@ -87,12 +87,12 @@ declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="sudo 免密 (/etc/sudoers.d/cjz)|action:core_modules:02_user_environment/01_configure_sudo.sh"
     [2]="配置 Zsh (Oh My Zsh, P10k, 插件, 字体)|action:core_modules:02_user_environment/02_configure_shell.sh"
-    [3]="配置nano(高亮和显示行号)|action:core_modules:02_user_environment/03_configure_nano.sh"
-    [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
-    [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
+    [3]="配置 NANO (高亮和显示行号)|action:core_modules:02_user_environment/03_configure_nano.sh"
+    [4]="配置 OPENSSH (端口 用户权限 服务开关)|action:core_modules:02_user_environment/04_configure_ssh.sh"
+    [5]="配置 UWF (端口 服务开关)|action:core_modules:02_user_environment/05_configure_ufw.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
-    [6]="XXXX(from another module dir)|action:extra_modules:my_extra_tool.sh"
+    [6]="待添加 (from another module dir)|action:extra_modules:my_extra_tool.sh"
     # 请确保 'modules-another/my_extra_tool.sh' 文件存在，以便此选项能正常工作
 )
 

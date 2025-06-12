@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/03_user_environment/01_configure_shell.sh
+# 文件: config/modules/02_user_environment/02_configure_shell.sh
 # 版本: 1.3.0 (新增从模板文件快速配置的功能)
 # 日期: 2025-06-12
 # 描述: 配置 Zsh Shell 环境，包括 Oh My Zsh, Powerlevel10k 主题及常用插件。
