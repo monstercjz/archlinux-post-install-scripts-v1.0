@@ -803,6 +803,7 @@ initialize_logging_system() {
     # 构建当前脚本的日志文件路径，包含脚本名称和精确到秒的时间戳。
     CURRENT_SCRIPT_LOG_FILE="$CURRENT_DAY_LOG_DIR/${script_name%.*}-$(date +%Y%m%d_%H%M%S).log"
     export CURRENT_SCRIPT_LOG_FILE
+    # log_summary "当前脚本的日志文件： '$CURRENT_SCRIPT_LOG_FILE'" 
 
     # 注意：这里使用 echo 输出到 stderr，而不是 log_info，
     # 因为 log_info 内部依赖 CURRENT_SCRIPT_LOG_FILE 已经完全设置好，

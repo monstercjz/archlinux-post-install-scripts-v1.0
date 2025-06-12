@@ -86,7 +86,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 declare -A COMMON_SOFTWARE_INSTALLATION_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="基础命令行软件 (fd tar ncdu reflector 等)|action:core_modules:04_common_software_installation/01_install_essential_software.sh"
-    [2]="AUR 助手-paru (添加中文社区软件源及秘钥)|menu:core_modules:02_user_environment/02_config_environment_menu.sh"
+    [2]="AUR 助手-paru (添加中文社区软件源及秘钥)|action:core_modules:04_common_software_installation/02_install_common_software.sh"
     [3]="xxxxxx(修改网络信息)|menu:core_modules:02_user_environment/03_setup_network.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
