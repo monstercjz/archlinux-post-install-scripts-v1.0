@@ -90,6 +90,7 @@ declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
     [3]="配置 NANO (高亮和显示行号)|action:core_modules:02_user_environment/03_configure_nano.sh"
     [4]="配置 OPENSSH (端口 用户权限 服务开关)|action:core_modules:02_user_environment/04_configure_ssh.sh"
     [5]="配置 UWF (端口 服务开关)|action:core_modules:02_user_environment/05_configure_ufw.sh"
+    [6]="配置 免密登入 (自动设置 手动教程)|action:core_modules:02_user_environment/06_configure_xfce_autologin.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
     [6]="待添加 (from another module dir)|action:extra_modules:my_extra_tool.sh"
