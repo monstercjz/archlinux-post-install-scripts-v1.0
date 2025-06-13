@@ -256,10 +256,7 @@ install_pacman_pkg() {
     local pacman_output
     refresh_pacman_database
     # 直接执行 pacman，不加 sudo，因为框架已保证 root 权限
-    # 原始代码（输出被重定向到变量）
-    # pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1)
-    # 改进后的代码（同时显示和保存输出）
-    if pacman_output=$(pacman -S --noconfirm --needed "${pkgs_to_install[@]}" 2>&1 | tee /dev/stderr); then
+    if pacman_output=$(pacman -S --noconfirm --needed $pkgs_to_install 2>&1 | tee /dev/stderr); then
         log_success "Official packages installed successfully: '$pkgs_to_install'."
         # 使用 log_debug 记录详细输出，避免刷屏，但在需要时可查
         log_debug "Pacman -S output:\n$pacman_output"
@@ -308,7 +305,7 @@ install_yay_pkg() {
     refresh_pacman_database
     local yay_output
     # 使用新的通用函数
-    if yay_output=$(run_as_user "yay -S --noconfirm --needed $pkgs_to_install" 2>&1); then
+    if yay_output=$(run_as_user "yay -S --noconfirm --needed $pkgs_to_install" 2>&1 | tee /dev/stderr); then
         log_success "AUR packages installed successfully using yay: '$pkgs_to_install'."
         log_debug "yay -S output:\n$yay_output"
         return 0
@@ -351,7 +348,7 @@ install_paru_pkg() {
     log_notice "Running 'paru' as non-root user '$ORIGINAL_USER'. This is required for safety."
     refresh_pacman_database
     local paru_output
-    if paru_output=$(run_as_user "paru -S --noconfirm --needed $pkgs_to_install" 2>&1); then
+    if paru_output=$(run_as_user "paru -S --noconfirm --needed $pkgs_to_install" 2>&1 | tee /dev/stderr); then
         log_success "AUR packages installed successfully using paru: '$pkgs_to_install'."
         log_debug "paru -S output:\n$paru_output"
         return 0
