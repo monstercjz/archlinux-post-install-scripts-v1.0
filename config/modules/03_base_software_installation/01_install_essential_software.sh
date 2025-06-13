@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/04_software_installation/01_install_essential_software.sh
+# 文件: config/modules/02_base_installation/01_install_essential_software.sh
 # 版本: 2.0.0 (重构为从文件读取软件包列表)
 # 日期: 2025-06-12
 # 描述: 安装基础开发工具和系统实用程序。
@@ -63,7 +63,7 @@ main() {
     fi
     
     # 4. 调用安装函数
-    if ! install_pacman_pkg $pkgs_to_install; then
+    if ! install_packages $pkgs_to_install; then
         log_error "安装部分基础软件包失败。请检查日志获取详细信息。"
         # 即使失败，也允许脚本继续，而不是中止整个流程
         return 1 

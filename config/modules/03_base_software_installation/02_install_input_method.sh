@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/04_common_software_installation/02_install_input_method.sh (示例路径)
+# 文件: config/modules/03_base_software_installation/02_install_input_method.sh (示例路径)
 # 版本: 1.0.3 (注释更新，符合最佳实践标注)
 # 日期: 2025-06-15
 # 描述: Arch Linux 输入法安装与配置模块。

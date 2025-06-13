@@ -85,9 +85,9 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 基础路径键: BASE_PATH_MAP 中定义的键 (例如 "core_modules", "extra_modules")
 declare -A MAIN_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
-    [1]="系统环境配置 (Mirrors, Network, System Time)|menu:core_modules:01_system_base/00_system_base_menu.sh"
-    [2]="用户环境配置 (Shell, Dotfiles, Editor)|menu:core_modules:02_user_environment/00_user_environment_menu.sh"
-    [3]="基础软件安装 (AUR Helper, Pacman Hooks)|menu:core_modules:03_base_software_installation/00_base_software_installation_menu.sh"
+    [1]="系统环境配置 (Mirrors, Network, Pacman Hooks)|menu:core_modules:01_system_base/00_system_base_menu.sh"
+    [2]="用户环境配置 (Shell, Autologin, Editor)|menu:core_modules:02_user_environment/00_user_environment_menu.sh"
+    [3]="基础软件安装 (AUR,Inputmethod,Essential )|menu:core_modules:03_base_software_installation/00_base_software_installation_menu.sh"
     [4]="常用软件安装 (Essential, Common, Specific Apps)|menu:core_modules:04_common_software_installation/00_common_software_installation_menu.sh"
     [5]="Perform Cleanup and Finish|action:core_modules:00_cleanup_and_finish.sh"
 

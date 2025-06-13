@@ -1,15 +1,122 @@
 # 基础开发工具和系统实用程序
+# 1. **网络工具**：
+# - `openssh`：SSH协议实现，用于安全远程登录。
+
+# - `nmap`：网络探测和安全审核工具。
+
+# - `traceroute`：跟踪数据包到达目标主机的路由。
+
+# - `mtr`：结合了traceroute和ping的网络诊断工具。
+
+# - `iftop`：实时监控网络带宽使用情况（按连接）。
+
+# - `nethogs`：按进程监控网络带宽使用情况。
+
+# 2. **系统监控与管理**：
+
+# - `htop`：交互式进程查看器（比top更强大）。
+
+# - `iotop`：监控磁盘I/O使用情况，按进程。
+
+# - `glances`：跨平台的系统监控工具（功能丰富）。
+
+# - `lsof`：列出打开的文件（用于诊断系统问题）。
+
+# - `strace`：跟踪系统调用和信号（调试程序）。
+
+# - `sysstat`：包含一系列性能监控工具（如iostat, mpstat, sar等）。
+
+# 3. **文本处理**：
+
+# - `jq`：轻量级命令行JSON处理器。
+
+# - `yq`：类似jq，用于YAML和XML处理（需要python，但非常有用）。
+
+# - `sed`：流编辑器，用于文本转换（通常系统自带，但确保安装）。
+
+# - `gawk`：GNU版本的awk，用于文本处理（比awk功能更强）。
+
+# - `ag` (the_silver_searcher)：类似grep但更快的代码搜索工具（用户已用ripgrep，但ag在某些情况下仍有用）。
+
+# - `tmux`：终端复用器，允许在单个窗口中管理多个终端会话（非常有用）。
+
+# 4. **文件传输与同步**：
+
+# - `rsync`：快速、多功能的文件复制工具（支持远程同步）。
+
+# - `rclone`：支持多个云存储服务的命令行同步工具。
+
+# - `scp`：基于SSH的安全文件传输（通常包含在openssh中）。
+
+# 5. **开发工具**：
+
+# - `base-devel`（用户已列）通常包括gcc, make等，但确保包含`gdb`（GNU调试器）和`valgrind`（内存调试和性能分析工具）对于开发也是必要的。
+
+# - `man-db`和`man-pages`：提供系统手册页（虽然基础系统有，但确保安装完整）。
+
+# - `neovim` 或 `vim`：命令行文本编辑器（如果用户需要，但用户可能已有偏好）。
+
+# - `ctags`：生成标签文件，便于文本编辑器中的代码导航。
+
+# - `cmake`：跨平台的构建系统（如果用户进行C/C++开发）。
+
+# 6. **其他实用工具**：
+
+# - `atool`：管理各种压缩文件格式的脚本（统一操作不同压缩包）。
+
+# - `rename`：批量重命名文件（使用Perl正则表达式）。
+
+# - `tree`：以树状结构列出目录内容。
+
+# - `entr`：运行任意命令，当文件改变时（用于自动重启服务或测试）。
+
+# - `direnv`：根据目录加载环境变量（与zsh配合很好）。
+
+# - `exa`的替代品`eza`用户已经列出，但注意`eza`是exa的维护分支，用户已经包含。
+
+# - `zoxide`：更智能的cd命令（类似autojump，但更快）。
+
+# 7. **硬件相关**：
+
+# - `dmidecode`：读取DMI表信息（硬件信息）。
+
+# - `lshw`：列出硬件详细信息。
+
+# - `smartmontools`：监控硬盘SMART状态。
+
+# 8. **安全性**：
+
+# - `sudo`：允许用户以其他权限运行命令（通常系统自带，但确保安装）。
+
+# - `fail2ban`：防止暴力破解（需要配置，但很重要）。
+
+# 9. **包管理相关**（Arch特有）：
+
+# - `pkgfile`：查找某个命令属于哪个包（例如：pkgfile vim）。
+
+# - `pacman-contrib`：包含一些pacman的辅助工具，例如`paccache`（清理包缓存）、`checkupdates`（检查更新）等。
+
+# 10. **终端增强**：
+
+# - `starship`：轻量、快速、可无限定制的命令行提示符（支持zsh）。
+
+# - `powerline` 或 `powerline-shell`：状态行插件（增强提示符）。
+
+# 11. **版本控制**：
+
+# - 用户已有`git`，但可能还需要`mercurial`（hg）或`subversion`（svn）如果项目需要。
+
+# 12. **文档工具**：
+
+# - `tealdeer`：tldr的Rust实现，简化的命令手册（比man更友好）。
+
 base-devel
 git
 curl
 wget
 fd
 ncdu
-bleachbit
-gparted
 fastfetch
-timeshift
-vlc
 ripgrep
 unzip
 unrar
@@ -17,3 +124,18 @@ p7zip
 tar
 zip
 reflector
+wqy-zenhei
+eza
+fzf
+bat
+zsh
+openssh
+nano
+tree
+rsync
+cifs-utils
+gvfs 
+gvfs-smb
+yay
+paru
+
