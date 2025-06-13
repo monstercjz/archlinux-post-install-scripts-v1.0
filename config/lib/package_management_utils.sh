@@ -433,29 +433,79 @@ install_packages() {
         return 0
     fi
     
-    # --- 步骤 3: 解析 pacman 输出，找出失败的包 ---
+     # --- 步骤 3: 解析 pacman 输出，找出失败的包 ---
     log_info "步骤 3/4: pacman 未能安装部分软件包，正在解析失败列表..."
     local pkgs_failed_pacman=()
-    # pacman 失败时通常会输出 "error: target not found: <package>"
-    # 我们用这个模式来精确地找出哪些包需要交由 AUR 助手处理。
-    pkgs_failed_pacman=($(echo "$pacman_output" | grep -oP 'target not found: \K\S+'))
+
+    # --- 修改提取逻辑 ---
+    # 旧方法: pkgs_failed_pacman=($(echo "$pacman_output" | grep -oP 'target not found: \K\S+'))
+    # 新方法: 使用 grep 查找包含 "target not found:" 的行，然后用 awk 提取最后一个字段 (包名)
+    # pacman 的错误信息格式通常是 "error: target not found: package-name"
+    # 或者中文环境下 "错误：未找到目标：package-name"
+    # 我们需要匹配这两种情况，并提取包名
+
+    # 首先，将 pacman_output 转换为可以逐行处理的数组（如果它不是的话）
+    mapfile -t pacman_output_lines <<< "$pacman_output"
+
+    for line in "${pacman_output_lines[@]}"; do
+        # 匹配英文 "error: target not found: package-name"
+        if [[ "$line" =~ error:[[:space:]]+target[[:space:]]+not[[:space:]]+found:[[:space:]]+([^[:space:]]+) ]]; then
+            pkgs_failed_pacman+=("${BASH_REMATCH[1]}")
+        # 匹配中文 "错误：未找到目标：package-name"
+        elif [[ "$line" =~ 错误：未找到目标：([^[:space:]]+) ]]; then # 注意冒号是全角还是半角
+            pkgs_failed_pacman+=("${BASH_REMATCH[1]}")
+        fi
+    done
+    # --- 提取逻辑修改结束 ---
+
+
+    # --- 新增调试输出，非常重要 ---
+    log_debug "Pacman raw output for parsing errors:"
+    log_debug "${pacman_output}"
+    log_debug "Number of packages parsed as 'target not found' by new logic: ${#pkgs_failed_pacman[@]}"
+    if [ ${#pkgs_failed_pacman[@]} -gt 0 ]; then
+        log_debug "Packages parsed as 'target not found': ${pkgs_failed_pacman[*]}"
+    fi
+    # --- 调试输出结束 ---
 
     if [ ${#pkgs_failed_pacman[@]} -eq 0 ]; then
         # 如果 pacman 失败了，但我们没有解析出任何“未找到”的包，
         # 那说明是其他严重错误（如网络问题、GPG密钥问题、文件冲突等）。
-        log_error "Pacman 安装失败，但原因并非'未找到目标'。这通常是严重错误。"
-        log_error "请检查 pacman 输出以确定问题:"
-        # 将原始输出以错误级别记录，方便调试
-        log_error "$(echo -e "\n${pacman_output}")"
+        log_error "Pacman 安装失败，且未能从输出中解析出具体'未找到目标'的软件包名称。"
+        log_error "这通常表示存在更普遍的问题（网络、GPG 密钥、文件冲突等）或 pacman 输出格式非预期。"
+        log_error "请检查 pacman 的完整输出以确定问题:"
+        log_error "$(echo -e "\n${pacman_output}")" # 确保换行被解释
         return 1
     fi
     
-    # 从失败列表中排除那些实际上成功了的包（如果有的话）
+    # 从原始要安装的列表中，找出哪些实际上被 pacman 成功安装了
+    # （即，在 pkgs_to_install 中，但不在 pkgs_failed_pacman 中）
     local successfully_installed_by_pacman=()
-    for pkg in "${pkgs_to_install[@]}"; do
-        # 如果一个包不在失败列表里，那它就是成功了
-        if ! [[ " ${pkgs_failed_pacman[*]} " =~ " ${pkg} " ]]; then
-            successfully_installed_by_pacman+=("$pkg")
+    local remaining_for_aur=() # 存储真正需要 AUR 处理的包
+
+    for pkg_to_check in "${pkgs_to_install[@]}"; do # pkgs_to_install 是最初 pacman 尝试安装的列表
+        local found_in_failed_list=false
+        for failed_pkg in "${pkgs_failed_pacman[@]}"; do
+            if [[ "$pkg_to_check" == "$failed_pkg" ]]; then
+                found_in_failed_list=true
+                break
+            fi
+        done
+
+        if $found_in_failed_list; then
+            remaining_for_aur+=("$pkg_to_check")
+        else
+            # 如果一个包最初计划安装，但不在 pacman 失败列表里，
+            # 我们需要再次确认它是否真的安装成功了（因为 pacman 可能因为其他原因失败，但部分包安装了）
+            if is_package_installed "$pkg_to_check"; then
+                 successfully_installed_by_pacman+=("$pkg_to_check")
+            else
+                # 这种情况比较复杂：pacman 整体失败，这个包也不在“未找到目标”列表，但它也没装上。
+                # 这可能是因为其他错误导致 pacman 中止。我们将它也加入到 AUR 尝试列表，或者单独报错。
+                # 为简单起见，先加入 AUR 尝试，如果 AUR 也失败，用户会看到。
+                log_warn "软件包 '$pkg_to_check' 未被 pacman 报告为 '未找到目标'，但似乎也未成功安装。将尝试通过 AUR。"
+                remaining_for_aur+=("$pkg_to_check")
+            fi
         fi
     done
 
@@ -463,26 +513,34 @@ install_packages() {
          log_success "已通过 pacman 成功安装 (${#successfully_installed_by_pacman[@]} 个): ${successfully_installed_by_pacman[*]}"
     fi
 
-    log_notice "以下软件包在官方仓库未找到，将尝试从 AUR 安装 (${#pkgs_failed_pacman[@]} 个): ${pkgs_failed_pacman[*]}"
+    if [ ${#remaining_for_aur[@]} -eq 0 ]; then
+        log_success "所有需要安装的软件包均已通过 pacman 处理完毕。"
+        # 检查最初 pacman_failed 标志，如果为 true 但这里 remaining_for_aur 为空，说明有其他类型的 pacman 错误
+        if $pacman_failed; then
+            log_error "Pacman 初始报告失败，但所有包似乎都已处理或不需要 AUR。请检查 pacman 输出以了解具体错误。"
+            log_error "$(echo -e "\n${pacman_output}")"
+            return 1 # 仍然标记为失败，因为 pacman 初始返回了错误
+        fi
+        return 0
+    fi
+
+    log_notice "以下软件包将尝试从 AUR 安装 (${#remaining_for_aur[@]} 个): ${remaining_for_aur[*]}"
 
     # --- 步骤 4: 对于 pacman 失败的包，回退到 AUR 助手 ---
     local aur_helper
-    aur_helper=$(_get_installed_aur_helper) # _get_installed_aur_helper 是我们已有的内部函数
+    aur_helper=$(_get_installed_aur_helper)
 
     if [ -z "$aur_helper" ]; then
-        log_error "未找到 AUR 助手 (yay 或 paru)。无法安装以下 AUR 包: ${pkgs_failed_pacman[*]}"
-        log_error "请先运行 '安装 AUR 助手' 模块。"
+        log_error "未找到 AUR 助手 (yay 或 paru)。无法安装以下 AUR 包: ${remaining_for_aur[*]}"
         return 1
     fi
     
     log_info "步骤 4/4: 使用检测到的 AUR 助手 '$aur_helper' 安装剩余的包..."
     
-    # 使用 run_as_user 来安全地执行 AUR 助手的安装命令
-    if run_as_user "$aur_helper -S --noconfirm --needed ${pkgs_failed_pacman[*]}"; then
-        log_success "已通过 '$aur_helper' 成功安装 (${#pkgs_failed_pacman[@]} 个): ${pkgs_failed_pacman[*]}"
+    if run_as_user "$aur_helper -S --noconfirm --needed ${remaining_for_aur[*]}"; then # 传递数组
+        log_success "已通过 '$aur_helper' 成功安装 (${#remaining_for_aur[@]} 个): ${remaining_for_aur[*]}"
     else
         log_error "使用 '$aur_helper' 安装部分或全部 AUR 软件包失败。"
-        log_error "请检查上面的日志以获取 '$aur_helper' 的详细输出。"
         return 1
     fi
 

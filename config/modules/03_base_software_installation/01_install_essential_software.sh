@@ -79,7 +79,7 @@ main() {
 main "$@"
 
 exit_script() {
-    local exit_code=${1:-$?_}
+    local exit_code=${1:-$?}
     if [ "$exit_code" -eq 0 ]; then
         log_info "成功退出基础软件安装脚本。"
     else
