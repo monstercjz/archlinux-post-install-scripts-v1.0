@@ -158,147 +158,97 @@ _ensure_user_in_autologin_group() {
 }
 
 # @description 修改 LightDM 配置文件以启用自动登录。
-# @param $1 (string) username - 要自动登录的用户名。
-# @returns 0 如果配置成功, 1 如果失败。
 _configure_lightdm_autologin() {
     local username="$1"
-    # 尝试确定 XFCE 会话的 .desktop 文件名 (不含.desktop后缀)
-    local xfce_session_name="xfce" # 默认值
-    if [ -f "/usr/share/xsessions/xfce.desktop" ]; then
-        xfce_session_name="xfce"
-    elif [ -f "/usr/share/xsessions/xfce4-session.desktop" ]; then
-        xfce_session_name="xfce4-session" # 某些系统可能是这个
-    elif [ -f "/usr/share/xsessions/Xfce.desktop" ]; then
-        xfce_session_name="Xfce" # 注意大小写
-    else
-        log_warn "无法自动确定 XFCE 的 .desktop 会话文件名于 /usr/share/xsessions/。"
-        log_warn "将使用默认值 '$xfce_session_name'。如果自动登录后未进入 XFCE，"
-        log_warn "请检查该目录，并手动修正 '$LIGHTDM_CONFIG_FILE' 中的 'autologin-session' 设置。"
-    fi
-    log_info "将使用会话名: '$xfce_session_name' (对应 /usr/share/xsessions/${xfce_session_name}.desktop)"
+    # ... (xfce_session_name 的确定逻辑不变) ...
+    local xfce_session_name="xfce"
+    if [ -f "/usr/share/xsessions/xfce.desktop" ]; then xfce_session_name="xfce";
+    elif [ -f "/usr/share/xsessions/xfce4-session.desktop" ]; then xfce_session_name="xfce4-session";
+    elif [ -f "/usr/share/xsessions/Xfce.desktop" ]; then xfce_session_name="Xfce";
+    else log_warn "无法确定 XFCE 会话文件名，将使用默认 'xfce'。"; fi
+    log_info "将使用会话名: '$xfce_session_name'"
 
-    log_info "正在为用户 '$username' 配置 LightDM 自动登录 (目标会话: $xfce_session_name)..."
-
-    # 备份原始配置文件，使用项目提供的通用备份函数
-    # 第二个参数是备份子目录名，GLOBAL_BACKUP_ROOT 由 environment_setup.sh 设置
+    log_info "正在为用户 '$username' 配置 LightDM 自动登录 (会话: $xfce_session_name)..."
     if ! create_backup_and_cleanup "$LIGHTDM_CONFIG_FILE" "lightdm_conf_autologin_backup"; then
-        # create_backup_and_cleanup 内部会处理文件不存在的情况
-        # 如果它返回非0，表示备份操作本身失败了（例如权限问题创建备份目录）
-        log_error "备份 LightDM 配置文件失败。中止操作以避免潜在问题。"
-        return 1
+        log_error "备份 LightDM 配置文件失败。中止操作。"; return 1;
     fi
-    
-    # 如果 lightdm.conf 不存在，则创建一个基础的
+    # ... (创建基础 lightdm.conf 和 [Seat:*] 的逻辑不变) ...
     if [ ! -f "$LIGHTDM_CONFIG_FILE" ]; then
-        log_info "配置文件 '$LIGHTDM_CONFIG_FILE' 不存在，将创建一个基础版本。"
-        # 确保目录存在
+        log_info "配置文件 '$LIGHTDM_CONFIG_FILE' 不存在，将创建。"
         mkdir -p "$(dirname "$LIGHTDM_CONFIG_FILE")"
-        # 创建文件并写入基础的 [Seat:*] 部分，否则后续 awk 可能找不到锚点
-        cat > "$LIGHTDM_CONFIG_FILE" << EOF
-# LightDM configuration file created by script $(date)
-# For autologin, ensure user is in the 'autologin' group.
-[Seat:*]
-EOF
-        log_success "已创建基础的 '$LIGHTDM_CONFIG_FILE'。"
-    # 确保 [Seat:*] 部分存在，如果不存在则添加 (对于已存在的文件)
+        echo -e "# LightDM conf created by script\n[Seat:*]" > "$LIGHTDM_CONFIG_FILE"
     elif ! grep -q "^\s*\[Seat:\*\]" "$LIGHTDM_CONFIG_FILE"; then
-        log_info "配置文件中未找到 '[Seat:*]' 部分，将添加它到文件末尾。"
-        # 在文件末尾追加，确保它在新行
+        log_info "配置文件中未找到 '[Seat:*]'，将添加。"
         echo -e "\n[Seat:*]" >> "$LIGHTDM_CONFIG_FILE"
     fi
 
+    local temp_lightdm_conf; temp_lightdm_conf=$(mktemp)
 
-    # 使用 awk 在找到 [Seat:*] 锚点后插入或替换自动登录相关的行。
-    # 这比多次调用 sed 更健壮，特别是当行不存在时。
-    local temp_lightdm_conf
-    temp_lightdm_conf=$(mktemp) # 创建一个临时文件
-
+    # --- awk 脚本核心修改 ---
     awk -v user="$username" -v session="$xfce_session_name" '
     BEGIN {
-        # 标记是否已处理过这些键
-        autologin_user_set = 0
-        autologin_session_set = 0
-        autologin_timeout_set = 0
-        in_seat_section = 0
+        in_seat_section = 0; # 标记是否在 [Seat:*] 或 [SeatDefaults] 内部
+        # 标记我们的配置是否已经被打印过，防止在多个Seat节中重复添加
+        autologin_config_printed_for_target_seat = 0;
     }
-    # 进入 [Seat:*] 或 [SeatDefaults] 段落
+
+    # 匹配 [Seat:*] 或 [SeatDefaults] 行
     /^\s*\[Seat:\*\]|^\s*\[SeatDefaults\]/ {
-        print
-        in_seat_section = 1
-        # 在段落开始后立即尝试插入我们的配置（如果它们还没被设置）
-        if (!autologin_user_set) {
+        print; # 打印节头，例如 [Seat:*]
+        in_seat_section = 1;
+        # 在节头之后立即打印我们的配置，并且只打印一次
+        if (!autologin_config_printed_for_target_seat) {
             print "autologin-user=" user
-            autologin_user_set = 1
-        }
-        if (!autologin_session_set) {
             print "autologin-session=" session
-            autologin_session_set = 1
-        }
-        if (!autologin_timeout_set) {
             print "autologin-user-timeout=0"
-            autologin_timeout_set = 1
+            autologin_config_printed_for_target_seat = 1; # 标记已打印
         }
-        next # 处理下一行
+        next; # 处理下一行
     }
-    # 如果在 [Seat:*] 段落中，并且遇到已有的自动登录相关行，则跳过它们（因为我们已在段落开始处添加了新的）
-    # 或者，更好的做法是注释掉它们，然后添加新的
-    # 这里采用简单策略：如果已在段落开始处添加，则注释掉后续找到的旧行
-    in_seat_section && /^\s*#?\s*autologin-user\s*=/ {
-        if (autologin_user_set && $0 !~ ("autologin-user=" user"$")) { print "#" $0 " ; Commented out by script"; next }
-    }
-    in_seat_section && /^\s*#?\s*autologin-session\s*=/ {
-        if (autologin_session_set && $0 !~ ("autologin-session=" session"$")) { print "#" $0 " ; Commented out by script"; next }
-    }
-    in_seat_section && /^\s*#?\s*autologin-user-timeout\s*=/ {
-        if (autologin_timeout_set && $0 !~ "autologin-user-timeout=0") { print "#" $0 " ; Commented out by script"; next }
-    }
-    # 如果遇到新的段落开始，则重置 in_seat_section 标志
+
+    # 如果在目标节内部，并且当前行是我们要控制的自动登录相关配置，则跳过它（不打印）
+    # 这样就有效地移除了所有旧的这些行
+    in_seat_section && /^\s*#?\s*autologin-user\s*=/ { next; }
+    in_seat_section && /^\s*#?\s*autologin-session\s*=/ { next; }
+    in_seat_section && /^\s*#?\s*autologin-user-timeout\s*=/ { next; }
+    # 也跳过 autologin-guest，我们不主动设置它
+    in_seat_section && /^\s*#?\s*autologin-guest\s*=/ { next; }
+
+
+    # 如果遇到新的节开始（不是 [Seat:*] 或 [SeatDefaults]），则重置 in_seat_section 标志
     /^\s*\[.*\]/ && !(/^\s*\[Seat:\*\]|^\s*\[SeatDefaults\]/) {
-        in_seat_section = 0
+        in_seat_section = 0;
     }
-    { print } # 打印其他所有行
+
+    { print } # 打印所有其他行
+
     END {
-        # 如果整个文件都没有 [Seat:*] 或 [SeatDefaults] (理论上已被前面逻辑创建/添加)
-        # 或者我们的键没有被成功插入（例如，文件是空的或只有注释）
-        # 则在文件末尾追加必要的段落和键
-        if (!autologin_user_set || !autologin_session_set || !autologin_timeout_set) {
-            if (!in_seat_section) { # 如果最后不在seat段内，或者文件根本没有seat段
-                 print "\n[Seat:*]" # 确保有一个Seat段
-            }
-            if (!autologin_user_set) print "autologin-user=" user
-            if (!autologin_session_set) print "autologin-session=" session
-            if (!autologin_timeout_set) print "autologin-user-timeout=0"
+        # 如果遍历完整个文件，我们的配置都还没有被打印（例如，文件是空的，或者没有 [Seat:*] 节）
+        # （虽然之前的逻辑应该已经创建了 [Seat:*]，但这里作为最终保险）
+        if (!autologin_config_printed_for_target_seat) {
+            print "\n[Seat:*]" # 确保有一个 Seat 段
+            print "autologin-user=" user
+            print "autologin-session=" session
+            print "autologin-user-timeout=0"
         }
     }
     ' "$LIGHTDM_CONFIG_FILE" > "$temp_lightdm_conf"
+    # --- awk 脚本核心修改结束 ---
 
-    # 检查 awk 是否成功执行 (虽然 awk 本身可能不返回错误码，但我们检查输出)
-    if [ ! -s "$temp_lightdm_conf" ] && [ -s "$LIGHTDM_CONFIG_FILE" ]; then # 如果临时文件为空但原文件不为空
-        log_error "使用 awk 处理 LightDM 配置文件失败，临时文件为空。保留原文件。"
-        rm -f "$temp_lightdm_conf"
-        return 1
+
+    if [ ! -s "$temp_lightdm_conf" ] && [ -s "$LIGHTDM_CONFIG_FILE" ]; then
+        log_error "Awk 处理失败，临时文件为空。保留原文件。"; rm -f "$temp_lightdm_conf"; return 1;
     fi
+    if mv "$temp_lightdm_conf" "$LIGHTDM_CONFIG_FILE"; then log_debug "LightDM 配置已更新。";
+    else log_error "移回临时文件失败！"; rm -f "$temp_lightdm_conf"; return 1; fi
 
-    # 用修改后的临时文件替换原文件
-    if mv "$temp_lightdm_conf" "$LIGHTDM_CONFIG_FILE"; then
-        log_debug "LightDM 配置文件已通过 awk 更新。"
-    else
-        log_error "将临时文件移回 '$LIGHTDM_CONFIG_FILE' 失败！"
-        rm -f "$temp_lightdm_conf" # 确保删除临时文件
-        return 1
-    fi
-
-    # 验证配置是否已正确写入
+    # 验证逻辑保持不变
     if grep -q "^\s*autologin-user=$username" "$LIGHTDM_CONFIG_FILE" && \
        grep -q "^\s*autologin-session=$xfce_session_name" "$LIGHTDM_CONFIG_FILE" && \
        grep -q "^\s*autologin-user-timeout=0" "$LIGHTDM_CONFIG_FILE"; then
-        log_success "LightDM 配置文件已成功修改。"
-        log_notice "用户 '${COLOR_CYAN}$username${COLOR_RESET}' 将在下次启动时自动登录到 XFCE 会话 ('${COLOR_CYAN}$xfce_session_name${COLOR_RESET}')。"
-        log_warn "${COLOR_RED}警告: 自动登录已启用，这会降低系统安全性。${COLOR_RESET}"
-        return 0
+        log_success "LightDM 配置文件成功修改。"; return 0;
     else
-        log_error "修改 LightDM 配置文件后验证失败。请手动检查 '$LIGHTDM_CONFIG_FILE'。"
-        return 1
+        log_error "修改后验证失败。请手动检查 '$LIGHTDM_CONFIG_FILE'。"; return 1;
     fi
 }
 # @description 显示手动配置 XFCE (LightDM) 自动登录的说明。
