@@ -427,7 +427,8 @@ alias l='eza -l'
 alias la='eza -a --icons'
 alias ll='eza -al --git --icons'
 alias tree='eza --tree'"
-        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$eza_aliases_block' >> '$target_file'"
+        # 使用双引号确保变量作为整体传递
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' \"$eza_aliases_block\" >> '$target_file'"
     fi
 
     if is_package_installed "bat" && ! run_as_user "grep -q \"# bat alias and theme\" '$target_file'"; then
@@ -435,17 +436,20 @@ alias tree='eza --tree'"
         local bat_config_block="# bat alias and theme
 alias cat='bat --paging=never'
 export BAT_THEME=\"TwoDark\""
-        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$bat_config_block' >> '$target_file'"
+        # 使用双引号确保变量作为整体传递
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' \"$bat_config_block\" >> '$target_file'"
     fi
 
     if is_package_installed "fzf" && ! run_as_user "grep -q \"# fzf default options\" '$target_file'"; then
         log_notice "添加 fzf 默认选项..."
         local fzf_opts_block="# fzf default options
 export FZF_DEFAULT_OPTS=\"--height 40% --layout=reverse --border\""
-        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$fzf_opts_block' >> '$target_file'"
+        # 使用双引号确保变量作为整体传递
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' \"$fzf_opts_block\" >> '$target_file'"
     fi
     return 0
 }
+
 _configure_p10k_init() {
     local target_file="$1"
     log_info "检查并配置 Powerlevel10k 初始化脚本..."; if ! _is_p10k_theme_installed; then log_info "Powerlevel10k 未安装，跳过。"; return 0; fi
