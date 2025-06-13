@@ -77,7 +77,7 @@ declare -A INPUT_SCHEMES=(
 
 # 输入法框架依赖的包
 declare -A FRAMEWORK_DEPENDENCIES=(
-    ["fcitx5"]="fcitx5 fcitx5-gtk fcitx5-qt5 fcitx5-configtool"
+    ["fcitx5"]="fcitx5 fcitx5-gtk fcitx5-qt fcitx5-configtool"
     ["ibus"]="ibus ibus-gtk ibus-gtk3 ibus-qt5"
 )
 
