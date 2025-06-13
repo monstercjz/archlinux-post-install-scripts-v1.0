@@ -247,125 +247,147 @@ _display_scheme_options_list() {
     echo -e "${COLOR_PURPLE}--------------------------------------------------------------------------------${COLOR_RESET}" # 分隔线
 }
 
+
+# _configure_im_environment()
 # @description 配置选定输入法框架的环境变量。
 #              会备份现有的 .xprofile 和 .pam_environment 文件，然后写入新的配置。
 # @param $1 (string) framework - 要配置的输入法框架的键名 (e.g., "fcitx5", "ibus")。
-# @returns (status) - 0 (成功), 1 (失败或未知框架)。
+# @returns (status) - 0 (成功), 非0 (失败或未知框架)。
 # @depends create_backup_and_cleanup (from utils.sh), sed, touch, cat (系统命令), id (用于获取组名)。
 _configure_im_environment() {
-    local framework="$1" # 接收传入的框架名称
+    local framework="$1"
 
     log_info "正在为 '${INPUT_METHOD_FRAMEWORKS[$framework]}' 配置输入法环境变量..."
 
-    # 备份用户现有的配置文件，使用 utils.sh 中的通用备份函数
-    # 第二个参数是备份子目录名，用于组织备份文件
     create_backup_and_cleanup "$IM_CONFIG_FILE" "im_config_xprofile_backup"
     create_backup_and_cleanup "$IM_ENV_FILE" "im_env_pam_backup"
 
-    # 清理旧的输入法配置，避免环境变量重复或冲突
-    # 使用 sed 直接在文件上操作 (in-place edit with -i)
-    # -E 使用扩展正则表达式, -e 指定多个编辑命令
-    # 匹配并删除以 "export GTK_IM_MODULE=" 等开头的行，以及特定注释行
-    log_debug "清理 '$IM_CONFIG_FILE' 中旧的输入法环境变量..."
-    sed -i -E \
-        -e '/^export (GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|INPUT_METHOD|SDL_IM_MODULE)=/d' \
-        -e '/^# Fcitx5 输入法配置/d' \
-        -e '/^# IBus 输入法配置/d' \
-        "$IM_CONFIG_FILE"
+    # 清理旧的输入法配置
+    local sed_output_xprofile
+    local sed_ec_xprofile=0
+    if [ -f "$IM_CONFIG_FILE" ]; then # 只有文件存在时才尝试清理
+        log_debug "清理 '$IM_CONFIG_FILE' 中旧的输入法环境变量..."
+        # 捕获 sed 的输出和退出码
+        sed_output_xprofile=$(sed -i -E \
+            -e '/^export (GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|INPUT_METHOD|SDL_IM_MODULE)=/d' \
+            -e '/^# Fcitx5 输入法配置/d' \
+            -e '/^# IBus 输入法配置/d' \
+            "$IM_CONFIG_FILE" 2>&1) || sed_ec_xprofile=$?
+
+        if [ "$sed_ec_xprofile" -ne 0 ]; then
+            # 如果 sed 失败，记录错误，但不一定是致命的，因为后续会写入
+            log_warn "sed command failed while cleaning '$IM_CONFIG_FILE' (exit code $sed_ec_xprofile)."
+            log_warn "sed output: $sed_output_xprofile"
+            # 不在此处 return，因为后续的 cat >> 仍然重要
+        fi
+    else
+        log_info "文件 '$IM_CONFIG_FILE' 不存在，无需使用 sed 清理旧配置。"
+    fi
     
-    if [ -f "$IM_ENV_FILE" ]; then # 确保 .pam_environment 文件存在再操作
+    local sed_output_pamenv
+    local sed_ec_pamenv=0
+    if [ -f "$IM_ENV_FILE" ]; then # 只有文件存在时才尝试清理
         log_debug "清理 '$IM_ENV_FILE' 中旧的输入法环境变量..."
-        sed -i -E \
+        sed_output_pamenv=$(sed -i -E \
             -e '/^(GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|INPUT_METHOD|SDL_IM_MODULE) DEFAULT=/d' \
-            "$IM_ENV_FILE"
+            "$IM_ENV_FILE" 2>&1) || sed_ec_pamenv=$?
+        
+        if [ "$sed_ec_pamenv" -ne 0 ]; then
+            log_warn "sed command failed while cleaning '$IM_ENV_FILE' (exit code $sed_ec_pamenv)."
+            log_warn "sed output: $sed_output_pamenv"
+        fi
+    else
+        log_info "文件 '$IM_ENV_FILE' 不存在，无需使用 sed 清理旧配置。"
     fi
 
     # 根据选择的框架写入新的环境变量配置
+    # 使用临时文件和 mv 来确保原子性写入，防止 cat >> 中途失败导致文件损坏
+    local temp_xprofile temp_pam_environment
+    temp_xprofile=$(mktemp)
+    temp_pam_environment=$(mktemp)
+    # trap 'rm -f "$temp_xprofile" "$temp_pam_environment"' EXIT HUP INT QUIT TERM # 确保临时文件被清理
+
+    # 先复制原始内容（如果存在）到临时文件
+    if [ -f "$IM_CONFIG_FILE" ]; then cat "$IM_CONFIG_FILE" > "$temp_xprofile"; fi
+    if [ -f "$IM_ENV_FILE" ]; then cat "$IM_ENV_FILE" > "$temp_pam_environment"; fi
+
     case "$framework" in
         "fcitx5")
-            log_info "配置 Fcitx5 环境变量到 '$IM_CONFIG_FILE' 和 '$IM_ENV_FILE'"
-            # 使用 here document (<< EOF) 向 .xprofile 追加配置
-            cat >> "$IM_CONFIG_FILE" << EOF
+            log_info "准备向临时文件写入 Fcitx5 环境变量..."
+            cat >> "$temp_xprofile" << EOF
 
 # Fcitx5 输入法配置 (由脚本添加于 $(date))
 export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
-# INPUT_METHOD 和 SDL_IM_MODULE 通常由 fcitx 自动处理或不是必需的，故注释掉
-# export INPUT_METHOD=fcitx
-# export SDL_IM_MODULE=fcitx
 EOF
-            # 对 .pam_environment 执行类似操作，先确保文件存在
-            touch "$IM_ENV_FILE" 
-            cat >> "$IM_ENV_FILE" << EOF
+            cat >> "$temp_pam_environment" << EOF
 GTK_IM_MODULE DEFAULT=fcitx
 QT_IM_MODULE DEFAULT=fcitx
 XMODIFIERS DEFAULT=@im=fcitx
-# INPUT_METHOD DEFAULT=fcitx
-# SDL_IM_MODULE DEFAULT=fcitx
 EOF
-            log_success "Fcitx5 环境变量已成功写入配置文件。"
             ;;
         "ibus")
-            log_info "配置 IBus 环境变量到 '$IM_CONFIG_FILE' 和 '$IM_ENV_FILE'"
-            cat >> "$IM_CONFIG_FILE" << EOF
+            log_info "准备向临时文件写入 IBus 环境变量..."
+            cat >> "$temp_xprofile" << EOF
 
 # IBus 输入法配置 (由脚本添加于 $(date))
 export GTK_IM_MODULE=ibus
 export QT_IM_MODULE=ibus
 export XMODIFIERS=@im=ibus
-# export INPUT_METHOD=ibus
 EOF
-            touch "$IM_ENV_FILE"
-            cat >> "$IM_ENV_FILE" << EOF
+            cat >> "$temp_pam_environment" << EOF
 GTK_IM_MODULE DEFAULT=ibus
 QT_IM_MODULE DEFAULT=ibus
 XMODIFIERS DEFAULT=@im=ibus
-# export INPUT_METHOD=ibus
 EOF
-            log_success "IBus 环境变量已成功写入配置文件。"
             ;;
         *)
             log_error "未知的输入法框架: '$framework'。无法配置环境变量。"
-            return 1 # 返回错误状态
+            rm -f "$temp_xprofile" "$temp_pam_environment" # 清理临时文件
+            # trap - EXIT HUP INT QUIT TERM
+            return 1
             ;;
     esac
 
-    # 设置配置文件的所有权和权限，确保它们属于原始用户且权限正确 (644)
-    # 修复：在函数内部获取用户主组名，而不是依赖未定义的 ORIGINAL_USER_GROUP
+    # 将临时文件内容移回原文件，并设置权限
     local user_primary_group
-    user_primary_group=$(id -gn "$ORIGINAL_USER" 2>/dev/null) # 获取组名，并抑制潜在错误输出
+    user_primary_group=$(id -gn "$ORIGINAL_USER" 2>/dev/null)
 
-    if [ -z "$user_primary_group" ]; then
-        # 如果无法获取组名，记录警告，并只尝试设置用户所有者
-        log_warn "无法获取用户 '$ORIGINAL_USER' 的主组名。文件组所有权可能不会被正确设置。"
-        if [ -f "$IM_CONFIG_FILE" ]; then
-            # chown 和 chmod 失败时记录警告，但不中止函数 (非致命)
-            chown "$ORIGINAL_USER" "$IM_CONFIG_FILE" && chmod 644 "$IM_CONFIG_FILE" || \
-                log_warn "设置 '$IM_CONFIG_FILE' 所有权/权限失败。"
-        fi
-        if [ -f "$IM_ENV_FILE" ]; then
-            chown "$ORIGINAL_USER" "$IM_ENV_FILE" && chmod 644 "$IM_ENV_FILE" || \
-                log_warn "设置 '$IM_ENV_FILE' 所有权/权限失败。"
+    # 处理 .xprofile
+    if mv "$temp_xprofile" "$IM_CONFIG_FILE"; then
+        log_debug ".xprofile 内容已更新。"
+        if [ -n "$user_primary_group" ]; then
+            chown "$ORIGINAL_USER:$user_primary_group" "$IM_CONFIG_FILE" && chmod 644 "$IM_CONFIG_FILE" || log_warn "设置 '$IM_CONFIG_FILE' 所有权/权限失败。"
+        else
+            chown "$ORIGINAL_USER" "$IM_CONFIG_FILE" && chmod 644 "$IM_CONFIG_FILE" || log_warn "设置 '$IM_CONFIG_FILE' 所有权/权限失败 (无组信息)。"
         fi
     else
-        # 如果成功获取组名，则同时设置用户和组所有者
-        log_debug "用户 '$ORIGINAL_USER' 的主组是 '$user_primary_group'。"
-        if [ -f "$IM_CONFIG_FILE" ]; then
-            chown "$ORIGINAL_USER:$user_primary_group" "$IM_CONFIG_FILE" && chmod 644 "$IM_CONFIG_FILE" || \
-                log_warn "设置 '$IM_CONFIG_FILE' 所有权/权限失败。"
-        fi
-        if [ -f "$IM_ENV_FILE" ]; then
-            chown "$ORIGINAL_USER:$user_primary_group" "$IM_ENV_FILE" && chmod 644 "$IM_ENV_FILE" || \
-                log_warn "设置 '$IM_ENV_FILE' 所有权/权限失败。"
-        fi
+        log_error "更新 '$IM_CONFIG_FILE' 失败。临时文件 '$temp_xprofile' 可能包含更改。"
+        # trap - EXIT HUP INT QUIT TERM
+        return 1
     fi
 
+    # 处理 .pam_environment
+    if mv "$temp_pam_environment" "$IM_ENV_FILE"; then
+        log_debug ".pam_environment 内容已更新。"
+         if [ -n "$user_primary_group" ]; then
+            chown "$ORIGINAL_USER:$user_primary_group" "$IM_ENV_FILE" && chmod 644 "$IM_ENV_FILE" || log_warn "设置 '$IM_ENV_FILE' 所有权/权限失败。"
+        else
+            chown "$ORIGINAL_USER" "$IM_ENV_FILE" && chmod 644 "$IM_ENV_FILE" || log_warn "设置 '$IM_ENV_FILE' 所有权/权限失败 (无组信息)。"
+        fi
+    else
+        log_error "更新 '$IM_ENV_FILE' 失败。临时文件 '$temp_pam_environment' 可能包含更改。"
+        # trap - EXIT HUP INT QUIT TERM
+        return 1
+    fi
+    
+    # trap - EXIT HUP INT QUIT TERM # 成功完成，移除陷阱
+    log_success "环境变量已成功写入配置文件。"
     log_notice "环境变量已配置。更改将在下次登录或重启 X 会话后生效。"
-    # 提示 .pam_environment 的兼容性问题
     log_warn "请注意: '.pam_environment' 文件的支持因系统和显示管理器的不同而异。"
     log_info "推荐检查您的显示管理器和桌面环境文档，了解设置输入法环境变量的最佳实践。"
-    return 0 # 配置完成，返回成功
+    return 0
 }
 
 # @description 为特定的桌面环境提供输入法集成配置的指导。
