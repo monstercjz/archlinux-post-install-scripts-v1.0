@@ -426,7 +426,7 @@ _display_installation_summary() {
     local total_successfully_installed=$((pacman_success_count + aur_success_count_final))
     local total_failed_to_install=$((pacman_fail_official_count + aur_fail_count))
 
-    display_header_section "软件包安装摘要" "box" 80 "${COLOR_BLUE}" "${COLOR_BOLD}${COLOR_WHITE}"
+    display_header_section "软件包安装摘要" "box" 80 "${COLOR_YELLOW}" "${COLOR_BOLD}${COLOR_WHITE}"
 
     log_summary "总共请求安装软件包数: ${COLOR_CYAN}${total_requested_count}${COLOR_RESET} 个"
     log_summary "----------------------------------------------------------------------"
