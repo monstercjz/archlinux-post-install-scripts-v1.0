@@ -88,7 +88,7 @@ declare -A BASE_SOFTWARE_INSTALLATION_MENU_ENTRIES=(
     [1]="软件安装ALL-IN-ONE ( 多列表可供选择 )|action:core_modules:03_base_software_installation/01_install_software_Allinone.sh"
     [2]="输入法框架及方案 (Fcitx5-im  fcitx5-chinese-addons)|action:core_modules:03_base_software_installation/02_install_input_method.sh"
     [3]="基础命令行软件 (fd tar ncdu reflector ...)|action:core_modules:03_base_software_installation/03_install_essential_software.sh"
-    [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
+    [4]="自定义软件列表 (可以直接输入包名或者包名组合) |action:core_modules:03_base_software_installation/04_install_custom_software.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
