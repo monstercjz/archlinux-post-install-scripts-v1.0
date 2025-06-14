@@ -1236,3 +1236,10 @@ run_as_user() {
         return $exit_code
     fi
 }
+# @description 显示一个提示消息，并等待用户按 Enter 键继续。
+# @param $1 (string, optional) - 要显示的提示文本。默认为 "按 Enter 键继续..."。
+_prompt_return_to_continue() {
+    local message="${1:-按 Enter 键继续...}" # 如果未提供参数，使用默认消息
+    # 使用 utils.sh 提供的颜色变量
+    read -rp "$(echo -e "${COLOR_YELLOW}${message}${COLOR_RESET}")"
+}

@@ -31,7 +31,6 @@
 #                       1. 增加重试机制 (最多3次)。
 #                       2. 捕获并记录 'pacman' 的标准错误输出，提供更详细的错误信息。
 #                       3. 提供网络问题故障排除提示。
-# v1.0.4 - 2025-06-08 - 可以捕获道安装包的成功个数，aur失败个数未能展示，等待下个版本修复：
 # ==============================================================================
 
 # 严格模式由调用脚本的顶部引导块设置。
@@ -370,88 +369,124 @@ install_paru_pkg() {
 
 # _get_installed_aur_helper, refresh_pacman_database, is_package_installed, 等其他辅助函数保持不变...
 
-# @description (内部辅助函数) 显示软件包安装过程的摘要信息。
-# @param $1 (int) total_requested - 最初请求安装的总包数。
-# @param $2 (int) already_installed_count - 开始时就已安装的包数。
-# @param $3 (int) pacman_success_count - 通过 Pacman 成功安装的包数。
-# @param $4 (int) aur_success_count - 通过 AUR 助手成功安装的包数。
-# @param $5 (int) final_fail_count - 最终安装失败的包数。
-# @param $6 (string) already_installed_list_str - 已安装包的列表 (空格分隔)。
-# @param $7 (string) pacman_success_list_str - Pacman 成功安装包的列表。
-# @param $8 (string) aur_success_list_str - AUR 成功安装包的列表。
-# @param $9 (string) final_fail_list_str - 最终失败包的列表。
+# 在 package_management_utils.sh 中
+
+# _get_installed_aur_helper, refresh_pacman_database, is_package_installed, 等其他辅助函数保持不变...
+
+# @description (内部辅助函数) 显示软件包安装过程的详细摘要信息 (新版)。
+# @param $1 (int) total_requested_count - 最初请求安装的总包数。
+# @param $2 (int) already_installed_count (B_count) - 启动时就已安装的包数。
+# @param $3 (string) already_installed_list_str (B_list) - 已安装包的列表。
+# @param $4 (int) official_candidates_count (D_count) - 初步筛选后，认为是官方仓库候选的包数。
+# @param $5 (string) official_candidates_list_str (D_list) - 官方仓库候选包的列表。
+# @param $6 (int) aur_candidates_count (C_count) - 初步筛选后，被认为是 AUR 候选的包数。
+# @param $7 (string) aur_candidates_list_str (C_list) - AUR 候选包的列表。
+# @param $8 (int) pacman_success_count (E_count) - 通过 Pacman 成功安装的包数。
+# @param $9 (string) pacman_success_list_str (E_list) - Pacman 成功安装包的列表。
+# @param $10 (int) pacman_fail_official_count (N_count) - Pacman 尝试安装官方包但失败的包数。
+# @param $11 (string) pacman_fail_official_list_str (N_list) - Pacman 安装失败的官方包列表。
+# @param $12 (int) aur_success_count (F_count) - 通过 AUR 助手成功安装的包数。
+# @param $13 (string) aur_success_list_str (F_list) - AUR 成功安装包的列表。
+# @param $14 (int) aur_fail_count (G_count) - AUR 助手安装失败的包数。
+# @param $15 (string) aur_fail_list_str (G_list) - AUR 安装失败包的列表。
 _display_installation_summary() {
-    local total_requested="$1"
+    local total_requested_count="$1"
+    # B
     local already_installed_count="$2"
-    local pacman_success_count="$3"
-    local aur_success_count="$4"
-    local final_fail_count="$5"
-    # 将列表字符串转换为数组以便更好地处理（特别是当列表为空时）
-    local -a already_installed_list_arr=($6) # $6 是字符串，这里会被词法分割
-    local -a pacman_success_list_arr=($7)
-    local -a aur_success_list_arr=($8)
-    local -a final_fail_list_arr=($9)
+    local -a already_installed_list_arr=($3)
+    # D
+    local official_candidates_count="$4"
+    local -a official_candidates_list_arr=($5)
+    # C
+    local aur_candidates_count="$6"
+    local -a aur_candidates_list_arr=($7)
+    # E
+    local pacman_success_count="$8"
+    local -a pacman_success_list_arr=($9)
+    # N
+    local pacman_fail_official_count="${10}"
+    local -a pacman_fail_official_list_arr=(${11})
+    # F
+    local aur_success_count_final="${12}" # Renamed to avoid conflict with param $6
+    local -a aur_success_list_arr=(${13})
+    # G
+    local aur_fail_count="${14}"
+    local -a aur_fail_list_arr=(${15})
 
-    # 准备要显示的列表字符串，如果数组为空则显示 (无)
     local already_installed_display="${already_installed_list_arr[*]:-(无)}"
+    local official_candidates_display="${official_candidates_list_arr[*]:-(无)}"
+    local aur_candidates_display="${aur_candidates_list_arr[*]:-(无)}"
     local pacman_success_display="${pacman_success_list_arr[*]:-(无)}"
-    local aur_success_display="${aur_success_list_arr[*]:-(无)}"
-    local final_fail_display="${final_fail_list_arr[*]:-(无)}"
+    local pacman_fail_official_display="${pacman_fail_official_list_arr[*]:-(无)}"
+    local aur_success_display_final="${aur_success_list_arr[*]:-(无)}" # Renamed
+    local aur_fail_display="${aur_fail_list_arr[*]:-(无)}"
 
+    local total_successfully_installed=$((pacman_success_count + aur_success_count_final))
+    local total_failed_to_install=$((pacman_fail_official_count + aur_fail_count))
 
-    display_header_section "软件包安装摘要" "box" 70 "${COLOR_BLUE}" "${COLOR_BOLD}${COLOR_WHITE}"
+    display_header_section "软件包安装摘要" "box" 80 "${COLOR_BLUE}" "${COLOR_BOLD}${COLOR_WHITE}"
 
-    log_summary "总共请求安装软件包: ${COLOR_CYAN}${total_requested}${COLOR_RESET} 个"
-    log_summary "--------------------------------------------------"
+    log_summary "总共请求安装软件包数: ${COLOR_CYAN}${total_requested_count}${COLOR_RESET} 个"
+    log_summary "----------------------------------------------------------------------"
+    log_summary "${COLOR_BOLD}初始状态与分类:${COLOR_RESET}"
+    log_summary "  启动时已安装 (B): ${COLOR_GREEN}${already_installed_count}${COLOR_RESET} 个"
+    if [ "$already_installed_count" -gt 0 ]; then log_summary "    (${COLOR_DIM_GREEN:-$COLOR_GREEN}$already_installed_display${COLOR_RESET})"; fi
 
-    log_summary "启动时已安装: ${COLOR_GREEN}${already_installed_count}${COLOR_RESET} 个"
-    if [ "$already_installed_count" -gt 0 ]; then
-        # 假设 COLOR_DIM_GREEN 已在 utils.sh 中定义，例如 export readonly COLOR_DIM_GREEN="${ESC}2;32m"
-        # 如果未定义，可以替换为 COLOR_GREEN 或其他颜色
-        log_summary "  ${COLOR_DIM_GREEN:-$COLOR_GREEN}($already_installed_display)${COLOR_RESET}"
-    fi
-
-    log_summary "通过 Pacman (官方仓库) 成功安装: ${COLOR_GREEN}${pacman_success_count}${COLOR_RESET} 个"
-    if [ "$pacman_success_count" -gt 0 ]; then
-        log_summary "  ${COLOR_DIM_GREEN:-$COLOR_GREEN}($pacman_success_display)${COLOR_RESET}"
-    fi
-
-    log_summary "通过 AUR 助手成功安装: ${COLOR_GREEN}${aur_success_count}${COLOR_RESET} 个"
-    if [ "$aur_success_count" -gt 0 ]; then
-        log_summary "  ${COLOR_DIM_GREEN:-$COLOR_GREEN}($aur_success_display)${COLOR_RESET}"
-    fi
+    log_summary "  待处理的官方仓库候选包 (D): ${COLOR_CYAN}${official_candidates_count}${COLOR_RESET} 个"
+    if [ "$official_candidates_count" -gt 0 ]; then log_summary "    (${COLOR_DIM_GREEN:-$COLOR_GREEN}$official_candidates_display${COLOR_RESET})"; fi
     
-    log_summary "--------------------------------------------------"
-    if [ "$final_fail_count" -gt 0 ]; then
-        log_summary "最终未能成功安装: ${COLOR_RED}${final_fail_count}${COLOR_RESET} 个"
-        log_summary "  ${COLOR_BRIGHT_RED}($final_fail_display)${COLOR_RESET}"
-        log_summary "${COLOR_YELLOW}请检查之前的日志以获取这些失败软件包的详细错误信息。${COLOR_RESET}"
+    log_summary "  待处理的疑似 AUR 候选包 (C): ${COLOR_CYAN}${aur_candidates_count}${COLOR_RESET} 个"
+    if [ "$aur_candidates_count" -gt 0 ]; then log_summary "    (${COLOR_DIM_GREEN:-$COLOR_GREEN}$aur_candidates_display${COLOR_RESET})"; fi
+    
+    log_summary "----------------------------------------------------------------------"
+    log_summary "${COLOR_BOLD}安装执行结果:${COLOR_RESET}"
+    log_summary "  通过 Pacman 成功安装 (E): ${COLOR_GREEN}${pacman_success_count}${COLOR_RESET} 个"
+    if [ "$pacman_success_count" -gt 0 ]; then log_summary "    (${COLOR_DIM_GREEN:-$COLOR_GREEN}$pacman_success_display${COLOR_RESET})"; fi
+
+    log_summary "  Pacman 安装失败的官方包 (N): ${COLOR_RED}${pacman_fail_official_count}${COLOR_RESET} 个"
+    if [ "$pacman_fail_official_count" -gt 0 ]; then log_summary "    (${COLOR_BRIGHT_RED}$pacman_fail_official_display${COLOR_RESET})"; fi
+
+    log_summary "  通过 AUR 助手成功安装 (F): ${COLOR_GREEN}${aur_success_count_final}${COLOR_RESET} 个"
+    if [ "$aur_success_count_final" -gt 0 ]; then log_summary "    (${COLOR_DIM_GREEN:-$COLOR_GREEN}$aur_success_display_final${COLOR_RESET})"; fi
+
+    log_summary "  AUR 助手安装失败的包 (G): ${COLOR_RED}${aur_fail_count}${COLOR_RESET} 个"
+    if [ "$aur_fail_count" -gt 0 ]; then log_summary "    (${COLOR_BRIGHT_RED}$aur_fail_display${COLOR_RESET})"; fi
+
+    log_summary "----------------------------------------------------------------------"
+    log_summary "${COLOR_BOLD}最终统计:${COLOR_RESET}"
+    log_summary "  共成功安装新软件包: ${COLOR_BRIGHT_GREEN}${total_successfully_installed}${COLOR_RESET} 个"
+    log_summary "  共未能成功安装软件包: ${COLOR_BRIGHT_RED}${total_failed_to_install}${COLOR_RESET} 个"
+    
+    if [ "$total_failed_to_install" -gt 0 ]; then
+        log_summary "${COLOR_YELLOW}请检查之前的日志以获取失败软件包的详细错误信息。${COLOR_RESET}"
     else
-        log_summary "${COLOR_BRIGHT_GREEN}所有需要安装的软件包均已成功处理！${COLOR_RESET}"
+        log_summary "${COLOR_BRIGHT_GREEN}所有需要新安装的软件包均已成功处理！${COLOR_RESET}"
     fi
-    log_summary "==================================================" "" "${COLOR_BLUE}"
-    echo # 空行
-    _prompt_return_to_continue "以上内容为安装摘要，按 Enter 返回主菜单选择框架..."
+    log_summary "======================================================================" "" "${COLOR_BLUE}"
+    echo
 }
 
 
-
 # install_packages()
-# @description: (新描述) 根据精细化流程安装软件包，区分官方和AUR，并提供详细摘要。
+# @description: (新描述 V2) 根据精细化流程安装软件包，区分官方和AUR，并提供详细摘要。
 # @param: $@ (strings) - 一个或多个要安装的软件包名称。
-# @returns: 0 如果所有请求的包都成功安装或已是最新, 1 如果有任何包最终安装失败。
+# @returns: 0 如果所有请求的新安装包都成功, 1 如果有任何新安装包最终失败。
 install_packages() {
-    if [ "$#" -eq 0 ]; then log_warn "install_packages: 未指定任何软件包。"; return 0; fi
+    if [ "$#" -eq 0 ]; then log_warn "install_packages: 未指定软件包。"; return 0; fi
 
     # --- 初始化所有跟踪数组 ---
-    local -a initial_requested_pkgs_array=()
-    local -a pkgs_already_installed_on_entry=() # B: 初始就已安装
-    local -a pkgs_to_attempt_install=()         # A: 初步筛选后需要尝试安装的
-    local -a pkgs_identified_for_aur=()          # C: 被识别为 AUR 包或 Pacman 首次尝试失败的
-    local -a pkgs_official_repo_candidates=()   # D: 首次 Pacman 后，被认为是官方仓库的
-    local -a pkgs_successfully_installed_by_pacman=() # E: 最终由 Pacman 成功安装的
-    local -a pkgs_successfully_installed_by_aur=()    # F: 最终由 AUR 助手成功安装的
-    local -a pkgs_failed_final=()                     # G: 所有尝试后最终失败的
+    local -a initial_requested_pkgs_array=() # 所有传入的包
+    local -a pkgs_already_installed_on_entry_B=() # B: 初始就已安装
+    local -a pkgs_to_process_initially_B_complement=() # A (B的补集): 初步筛选后需要处理的
+    
+    local -a pkgs_identified_for_aur_C=()      # C: 被识别为 AUR 包或 Pacman 首次尝试"未找到目标"的
+    local -a pkgs_official_repo_candidates_D=() # D: 首次 Pacman 后，被认为是官方仓库的
+    
+    local -a pkgs_successfully_installed_by_pacman_E=() # E: 最终由 Pacman 成功安装的
+    local -a pkgs_failed_to_install_by_pacman_N=()   # N: Pacman 尝试官方包但失败的
+    
+    local -a pkgs_successfully_installed_by_aur_F=() # F: 最终由 AUR 助手成功安装的
+    local -a pkgs_failed_to_install_by_aur_G=()    # G: AUR 助手安装失败的
 
     # --- 输入处理 ---
     if [ "$#" -eq 1 ] && [[ "$1" == *" "* ]]; then read -r -a initial_requested_pkgs_array <<< "$1"; else initial_requested_pkgs_array=("$@"); fi
@@ -461,149 +496,137 @@ install_packages() {
     # --- 阶段 0: 准备工作 ---
     if ! refresh_pacman_database; then
         log_error "刷新 Pacman 数据库失败。中止软件包安装。"
-        pkgs_failed_final=("${initial_requested_pkgs_array[@]}") # 所有请求的都失败
-        _display_installation_summary "$total_initial_requested_count" 0 0 0 "${#pkgs_failed_final[@]}" "" "" "" "${pkgs_failed_final[*]}"
+        # 此时所有请求的包都视为失败
+        _display_installation_summary "$total_initial_requested_count" \
+            0 "" \
+            0 "" \
+            0 "" \
+            0 "" \
+            "$total_initial_requested_count" "${initial_requested_pkgs_array[*]}" \
+            0 "" \
+            0 ""
         return 1
     fi
 
-    # --- 阶段 1: 初步状态检查 ---
+    # --- 阶段 1: 检查真实需要安装的 (填充 A 和 B) ---
     display_header_section "软件包安装流程" "sub_box" 70
-    log_info "阶段 1: 检查软件包初始安装状态..."
+    log_info "阶段 1: 检查初始安装状态..."
     for pkg in "${initial_requested_pkgs_array[@]}"; do
         if is_package_installed "$pkg"; then
-            pkgs_already_installed_on_entry+=("$pkg")
+            pkgs_already_installed_on_entry_B+=("$pkg")
         else
-            pkgs_to_attempt_install+=("$pkg")
+            pkgs_to_process_initially_B_complement+=("$pkg")
         fi
     done
-    # 去重 pkgs_already_installed_on_entry (如果来源可能有重复) - 此处通常不需要
-    # 去重 pkgs_to_attempt_install (如果来源可能有重复) - 此处通常不需要
+    # (可选去重B和A，但如果输入列表本身是干净的则不需要)
 
-    if [ ${#pkgs_already_installed_on_entry[@]} -gt 0 ]; then
-        log_success "以下 ${#pkgs_already_installed_on_entry[@]} 个软件包已安装，将跳过: ${pkgs_already_installed_on_entry[*]}"
+    if [ ${#pkgs_already_installed_on_entry_B[@]} -gt 0 ]; then
+        log_success "以下 ${#pkgs_already_installed_on_entry_B[@]} 个包已安装 (B): ${pkgs_already_installed_on_entry_B[*]}"
     fi
-    if [ ${#pkgs_to_attempt_install[@]} -eq 0 ]; then
-        log_success "所有请求的软件包均已安装或无需安装。"
-        _display_installation_summary "$total_initial_requested_count" "${#pkgs_already_installed_on_entry[@]}" 0 0 0 "${pkgs_already_installed_on_entry[*]}" "" "" ""
-        return 0
+    if [ ${#pkgs_to_process_initially_B_complement[@]} -eq 0 ]; then
+        log_success "所有请求的包均已安装。"; 
+        _display_installation_summary "$total_initial_requested_count" \
+            "${#pkgs_already_installed_on_entry_B[@]}" "${pkgs_already_installed_on_entry_B[*]}" \
+            0 "" 0 "" \
+            0 "" 0 "" 0 "" 0 ""
+        return 0;
     fi
-    log_notice "将要处理 ${#pkgs_to_attempt_install[@]} 个未安装的软件包: ${pkgs_to_attempt_install[*]}"
-    echo
+    log_notice "将处理 ${#pkgs_to_process_initially_B_complement[@]} 个未安装的包 (A): ${pkgs_to_process_initially_B_complement[*]}"; echo
 
-    # --- 阶段 2: Pacman 首次尝试与 AUR 包识别 ---
-    log_info "阶段 2: 使用 Pacman 识别官方仓库包与潜在 AUR 包..."
-    local pacman_attempt1_output
-    local pacman_attempt1_failed_flag=false # 标记 Pacman 命令是否整体失败
+    # --- 阶段 2: 初步筛查分类 (对 B_complement/A 操作，填充 C 和 D) ---
+    log_info "阶段 2: 使用 Pacman 初步筛查，区分官方与疑似AUR包..."
+    local pacman_scan_output; local pacman_scan_failed_flag=false
+    # 使用 --print 选项代替 -S，这样 pacman 只会查找包而不会尝试安装或下载
+    # 这可以更快地识别 "target not found"
+    # 注意：--print 可能不会检查所有依赖，但对于识别 AUR 包足够了
+    # 我们仍然需要捕获错误，因为如果所有包都是官方的，--print 可能会成功（返回0）
+    # 或者，如果列表为空，pacman --print 可能会报错
+    if [ ${#pkgs_to_process_initially_B_complement[@]} -gt 0 ]; then
+        # pacman_scan_output=$(pacman -S --noconfirm --needed --assume-installed "${pkgs_already_installed_on_entry_B[@]}" "${pkgs_to_process_initially_B_complement[@]}" 2>&1) || pacman_scan_failed_flag=true
+        # 使用 -Sp 来仅打印目标，不执行操作。这能快速识别哪些包是官方的。
+        # 然而，-Sp 对于不存在的包会直接报错退出，可能不适合批量识别。
+        # 还是用第一次尝试安装的方式来识别，但主要看输出。
+        pacman_scan_output=$(pacman -S --noconfirm --needed "${pkgs_to_process_initially_B_complement[@]}" 2>&1) || pacman_scan_failed_flag=true
+    else
+        pacman_scan_failed_flag=false # 没有包需要处理，所以不算失败
+        pacman_scan_output=""
+    fi
 
-    # 我们期望这个 pacman 命令可能会因为 AUR 包而“失败”（返回非零）
-    # 但我们主要关注它的输出来识别哪些是“target not found”
-    pacman_attempt1_output=$(pacman -S --noconfirm --needed --assume-installed "${pkgs_already_installed_on_entry[@]}" "${pkgs_to_attempt_install[@]}" 2>&1 | tee /dev/stderr) || pacman_attempt1_failed_flag=true
-    # 使用 --assume-installed 告诉 pacman 那些已安装的包不需要再次检查依赖，可能加速或避免不必要错误
-
-    mapfile -t pacman_output_lines <<< "$pacman_attempt1_output"
-    for line in "${pacman_output_lines[@]}"; do
+    local -a pacman_scan_output_lines; mapfile -t pacman_scan_output_lines <<< "$pacman_scan_output"
+    for line in "${pacman_scan_output_lines[@]}"; do
         if [[ "$line" =~ error:[[:space:]]+target[[:space:]]+not[[:space:]]+found:[[:space:]]+([^[:space:]]+) ]] || \
            [[ "$line" =~ 错误：未找到目标：([^[:space:]]+) ]]; then
-            pkgs_identified_for_aur+=("${BASH_REMATCH[1]}")
+            pkgs_identified_for_aur_C+=("${BASH_REMATCH[1]}")
         fi
     done
-    # 去重 pkgs_identified_for_aur
-    if (( BASH_VERSINFO[0] >= 4 && ${#pkgs_identified_for_aur[@]} > 0 )); then declare -A s; local t=(); for i in "${pkgs_identified_for_aur[@]}"; do if [[ -z "${s[$i]:-}" ]]; then t+=("$i"); s[$i]=1; fi; done; pkgs_identified_for_aur=("${t[@]}"); elif [ ${#pkgs_identified_for_aur[@]} -gt 0 ]; then local su=$(printf "%s\n" "${pkgs_identified_for_aur[@]}"|sort -u|tr '\n' ' '); read -r -a pkgs_identified_for_aur <<< "${su% }"; fi
-    log_debug "Pacman 首次尝试的原始输出:\n${pacman_attempt1_output}"
-    log_debug "被识别为 AUR 或首次 Pacman 未找到的包: ${pkgs_identified_for_aur[*]}"
+    # 去重 C
+    if ((BASH_VERSINFO[0] >= 4 && ${#pkgs_identified_for_aur_C[@]} > 0)); then declare -A s; local t=(); for i in "${pkgs_identified_for_aur_C[@]}"; do if [[ -z "${s[$i]:-}" ]]; then t+=("$i"); s[$i]=1; fi; done; pkgs_identified_for_aur_C=("${t[@]}"); elif [ ${#pkgs_identified_for_aur_C[@]} -gt 0 ]; then local su=$(printf "%s\n" "${pkgs_identified_for_aur_C[@]}"|sort -u|tr '\n' ' '); read -r -a pkgs_identified_for_aur_C <<< "${su% }"; fi
 
-    # 填充 pkgs_official_repo_candidates (D)
-    for pkg_attempt in "${pkgs_to_attempt_install[@]}"; do
-        local is_potential_aur=false
-        for aur_cand in "${pkgs_identified_for_aur[@]}"; do if [[ "$pkg_attempt" == "$aur_cand" ]]; then is_potential_aur=true; break; fi; done
-        if ! $is_potential_aur; then
-            pkgs_official_repo_candidates+=("$pkg_attempt")
-        fi
+    for pkg_in_A in "${pkgs_to_process_initially_B_complement[@]}"; do
+        local is_aur=false; for aur_c in "${pkgs_identified_for_aur_C[@]}"; do if [[ "$pkg_in_A" == "$aur_c" ]]; then is_aur=true; break; fi; done
+        if ! $is_aur; then pkgs_official_repo_candidates_D+=("$pkg_in_A"); fi
     done
-    log_debug "被识别为官方仓库候选的包 (D): ${pkgs_official_repo_candidates[*]}"
-    echo
+    # 去重 D
+    if ((BASH_VERSINFO[0] >= 4 && ${#pkgs_official_repo_candidates_D[@]} > 0)); then declare -A s; local t=(); for i in "${pkgs_official_repo_candidates_D[@]}"; do if [[ -z "${s[$i]:-}" ]]; then t+=("$i"); s[$i]=1; fi; done; pkgs_official_repo_candidates_D=("${t[@]}"); elif [ ${#pkgs_official_repo_candidates_D[@]} -gt 0 ]; then local su=$(printf "%s\n" "${pkgs_official_repo_candidates_D[@]}"|sort -u|tr '\n' ' '); read -r -a pkgs_official_repo_candidates_D <<< "${su% }"; fi
 
-    # --- 阶段 3: Pacman 精确安装官方仓库包 ---
-    if [ ${#pkgs_official_repo_candidates[@]} -gt 0 ]; then
-        log_info "阶段 3: 精确安装 ${#pkgs_official_repo_candidates[@]} 个官方仓库候选包..."
-        local pacman_attempt2_output
-        local pacman_attempt2_failed_flag=false
-        pacman_attempt2_output=$(pacman -S --noconfirm --needed "${pkgs_official_repo_candidates[@]}" 2>&1 | tee /dev/stderr) || pacman_attempt2_failed_flag=true
+    log_debug "Pacman 扫描输出:\n${pacman_scan_output}"
+    log_info "官方仓库候选包 (D): ${#pkgs_official_repo_candidates_D[@]} 个 ${pkgs_official_repo_candidates_D[*]}"
+    log_info "疑似 AUR 候选包 (C): ${#pkgs_identified_for_aur_C[@]} 个 ${pkgs_identified_for_aur_C[*]}"; echo
 
-        for pkg_official in "${pkgs_official_repo_candidates[@]}"; do
-            if is_package_installed "$pkg_official"; then
-                pkgs_successfully_installed_by_pacman+=("$pkg_official") # E
-            else
-                log_warn "官方仓库包 '$pkg_official' 在第二次 Pacman 尝试后仍未安装成功。"
-                pkgs_failed_final+=("$pkg_official") # G
-            fi
+    # --- 阶段 3: 精确安装官方仓库候选包 (D)，填充 E 和 N ---
+    if [ ${#pkgs_official_repo_candidates_D[@]} -gt 0 ]; then
+        log_info "阶段 3: 安装 ${#pkgs_official_repo_candidates_D[@]} 个官方仓库包..."
+        local pacman_install_D_output; local pacman_install_D_failed_flag=false
+        if ! pacman_install_D_output=$(pacman -S --noconfirm --needed "${pkgs_official_repo_candidates_D[@]}" 2>&1 | tee /dev/stderr); then
+            pacman_install_D_failed_flag=true
+        fi
+        for pkg_d_item in "${pkgs_official_repo_candidates_D[@]}"; do
+            if is_package_installed "$pkg_d_item"; then pkgs_successfully_installed_by_pacman_E+=("$pkg_d_item");
+            else pkgs_failed_to_install_by_pacman_N+=("$pkg_d_item"); fi
         done
-        # 去重 E 和 G (如果需要，但通常不需要，因为来源是去重后的 D)
-        if [ ${#pkgs_successfully_installed_by_pacman[@]} -gt 0 ]; then
-             log_success "通过 Pacman 成功安装 ${#pkgs_successfully_installed_by_pacman[@]} 个官方包: ${pkgs_successfully_installed_by_pacman[*]}"
-        fi
-    else
-        log_info "阶段 3: 没有需要通过 Pacman 精确安装的官方仓库包。"
-    fi
+        if [ ${#pkgs_successfully_installed_by_pacman_E[@]} -gt 0 ]; then log_success "Pacman 成功安装 (E): ${#pkgs_successfully_installed_by_pacman_E[@]} 个 ${pkgs_successfully_installed_by_pacman_E[*]}"; fi
+        if [ ${#pkgs_failed_to_install_by_pacman_N[@]} -gt 0 ]; then log_error "Pacman 安装失败 (N): ${#pkgs_failed_to_install_by_pacman_N[@]} 个 ${pkgs_failed_to_install_by_pacman_N[*]}"; fi
+    else log_info "阶段 3: 无官方仓库包需要安装。"; fi
     echo
 
-    # --- 阶段 4: AUR 助手安装 ---
-    if [ ${#pkgs_identified_for_aur[@]} -gt 0 ]; then
-        log_info "阶段 4: 尝试使用 AUR 助手安装 ${#pkgs_identified_for_aur[@]} 个包..."
+    # --- 阶段 4: 尝试使用 AUR 助手安装 (C)，填充 F 和 G ---
+    if [ ${#pkgs_identified_for_aur_C[@]} -gt 0 ]; then
+        log_info "阶段 4: 尝试安装 ${#pkgs_identified_for_aur_C[@]} 个 AUR 包..."
         local aur_helper; aur_helper=$(_get_installed_aur_helper)
         if [ -z "$aur_helper" ]; then
-            log_error "未找到 AUR 助手。以下包无法从 AUR 安装: ${pkgs_identified_for_aur[*]}"
-            pkgs_failed_final+=("${pkgs_identified_for_aur[@]}") # 这些全部失败
+            log_error "未找到 AUR 助手。以下包无法从 AUR 安装: ${pkgs_identified_for_aur_C[*]}"
+            pkgs_failed_to_install_by_aur_G+=("${pkgs_identified_for_aur_C[@]}") # 所有这些都失败
         else
             log_info "使用 AUR 助手 '$aur_helper'..."
-            local aur_install_output
-            local aur_failed_flag=false
-            aur_install_output=$(run_as_user "$aur_helper -S --noconfirm --needed ${pkgs_identified_for_aur[*]}" 2>&1 | tee /dev/stderr) || aur_failed_flag=true
-            
-            if $aur_failed_flag; then
-                log_warn "AUR 助手 '$aur_helper' 执行时返回了错误状态。"
+            local aur_install_output; local aur_failed_flag=false
+            if ! aur_install_output=$(run_as_user "$aur_helper -S --noconfirm --needed ${pkgs_identified_for_aur_C[*]}" 2>&1 | tee /dev/stderr); then
+                aur_failed_flag=true
             fi
-
-            for pkg_aur_check in "${pkgs_identified_for_aur[@]}"; do
-                if is_package_installed "$pkg_aur_check"; then
-                    pkgs_successfully_installed_by_aur+=("$pkg_aur_check") # F
-                else
-                    log_warn "AUR 包 '$pkg_aur_check' 在 AUR 助手尝试后仍未安装成功。"
-                    pkgs_failed_final+=("$pkg_aur_check") # G
-                fi
+            if $aur_failed_flag; then log_warn "AUR 助手 '$aur_helper' 执行时返回了错误状态。"; fi
+            for pkg_c_item in "${pkgs_identified_for_aur_C[@]}"; do
+                if is_package_installed "$pkg_c_item"; then pkgs_successfully_installed_by_aur_F+=("$pkg_c_item");
+                else pkgs_failed_to_install_by_aur_G+=("$pkg_c_item"); fi
             done
-            if [ ${#pkgs_successfully_installed_by_aur[@]} -gt 0 ]; then
-                log_success "通过 AUR 助手 '$aur_helper' 成功安装 ${#pkgs_successfully_installed_by_aur[@]} 个包: ${pkgs_successfully_installed_by_aur[*]}"
-            fi
+            if [ ${#pkgs_successfully_installed_by_aur_F[@]} -gt 0 ]; then log_success "AUR 成功安装 (F): ${#pkgs_successfully_installed_by_aur_F[@]} 个 ${pkgs_successfully_installed_by_aur_F[*]}"; fi
+            if [ ${#pkgs_failed_to_install_by_aur_G[@]} -gt 0 ]; then log_error "AUR 安装失败 (G): ${#pkgs_failed_to_install_by_aur_G[@]} 个 ${pkgs_failed_to_install_by_aur_G[*]}"; fi
         fi
-    else
-        log_info "阶段 4: 没有需要通过 AUR 助手安装的包。"
-    fi
+    else log_info "阶段 4: 无 AUR 包需要安装。"; fi
     echo
 
-    # --- 阶段 5: 生成并显示摘要 ---
-    # 在调用摘要前，最后对所有统计数组进行一次去重，确保准确性
-    # （pkgs_already_installed_on_entry 通常不需要，除非输入列表有重复）
-    # （pkgs_successfully_installed_by_pacman 通常不需要）
-    # （pkgs_successfully_installed_by_aur 通常不需要）
-    # 但 pkgs_failed_final 可能会从不同阶段收集，去重很重要
-    if (( BASH_VERSINFO[0] >= 4 && ${#pkgs_failed_final[@]} > 0 )); then declare -A s; local t=(); for i in "${pkgs_failed_final[@]}"; do if [[ -z "${s[$i]:-}" ]]; then t+=("$i"); s[$i]=1; fi; done; pkgs_failed_final=("${t[@]}"); elif [ ${#pkgs_failed_final[@]} -gt 0 ]; then local su=$(printf "%s\n" "${pkgs_failed_final[@]}"|sort -u|tr '\n' ' '); read -r -a pkgs_failed_final <<< "${su% }"; fi
-    
+    # --- 阶段 5: 摘要展示 ---
+    # (确保所有统计数组在传递前都是最新的，如果前面有去重逻辑，则它们已去重)
     _display_installation_summary "$total_initial_requested_count" \
-                                  "${#pkgs_already_installed_on_entry[@]}" \
-                                  "${#pkgs_successfully_installed_by_pacman[@]}" \
-                                  "${#pkgs_successfully_installed_by_aur[@]}" \
-                                  "${#pkgs_failed_final[@]}" \
-                                  "${pkgs_already_installed_on_entry[*]}" \
-                                  "${pkgs_successfully_installed_by_pacman[*]}" \
-                                  "${pkgs_successfully_installed_by_aur[*]}" \
-                                  "${pkgs_failed_final[*]}"
+        "${#pkgs_already_installed_on_entry_B[@]}" "${pkgs_already_installed_on_entry_B[*]}" \
+        "${#pkgs_official_repo_candidates_D[@]}" "${pkgs_official_repo_candidates_D[*]}" \
+        "${#pkgs_identified_for_aur_C[@]}" "${pkgs_identified_for_aur_C[*]}" \
+        "${#pkgs_successfully_installed_by_pacman_E[@]}" "${pkgs_successfully_installed_by_pacman_E[*]}" \
+        "${#pkgs_failed_to_install_by_pacman_N[@]}" "${pkgs_failed_to_install_by_pacman_N[*]}" \
+        "${#pkgs_successfully_installed_by_aur_F[@]}" "${pkgs_successfully_installed_by_aur_F[*]}" \
+        "${#pkgs_failed_to_install_by_aur_G[@]}" "${pkgs_failed_to_install_by_aur_G[*]}"
 
-    if [ ${#pkgs_failed_final[@]} -gt 0 ]; then
-        log_error "部分软件包未能成功安装。"
+    if [ ${#pkgs_failed_to_install_by_pacman_N[@]} -gt 0 ] || [ ${#pkgs_failed_to_install_by_aur_G[@]} -gt 0 ]; then
         return 1
     else
-        log_success "所有请求的软件包均已成功处理！"
         return 0
     fi
 }
