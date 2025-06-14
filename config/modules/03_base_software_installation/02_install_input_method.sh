@@ -131,13 +131,13 @@ get_sorted_keys_for_assoc_array() {
     printf '%s\n' "${!arr_ref[@]}" | sort # 打印所有键，然后排序
 }
 
-# @description 显示一个提示消息，并等待用户按 Enter 键继续。
+# @description 显示一个提示消息，并等待用户按 Enter 键继续。已经集成到utils.sh
 # @param $1 (string, optional) - 要显示的提示文本。默认为 "按 Enter 键继续..."。
-_prompt_return_to_continue() {
-    local message="${1:-按 Enter 键继续...}" # 如果未提供参数，使用默认消息
-    # 使用 utils.sh 提供的颜色变量
-    read -rp "$(echo -e "${COLOR_YELLOW}${message}${COLOR_RESET}")"
-}
+# _prompt_return_to_continue() {
+#     local message="${1:-按 Enter 键继续...}" # 如果未提供参数，使用默认消息
+#     # 使用 utils.sh 提供的颜色变量
+#     read -rp "$(echo -e "${COLOR_YELLOW}${message}${COLOR_RESET}")"
+# }
 
 # @description 检查指定的字体名称模式是否已安装在系统中。
 # @param $1 (string) font_name_pattern - 要检查的字体名称模式 (支持 grep 正则表达式)。
