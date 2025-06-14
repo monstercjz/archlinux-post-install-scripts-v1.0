@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/02_base_installation/01_install_software_from_list_menu.sh (新文件名示例)
+# 文件: config/modules/03_base_software_installation/01_install_software_Allinone.sh (新文件名示例)
 # 版本: 2.1.0 (扩展为通过菜单选择单个 .list 文件进行安装)
 # 日期: 2025-06-15
 # 描述: 通过菜单选择一个预定义的软件包列表文件，并安装其中的软件包。

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # 项目: archlinux-post-install-scripts
-# 文件: config/modules/02_base_installation/01_install_essential_software.sh
+# 文件: config/modules/03_base_software_installation/03_install_essential_software.sh
 # 版本: 2.0.0 (重构为从文件读取软件包列表)
 # 日期: 2025-06-12
 # 描述: 安装基础开发工具和系统实用程序。
