@@ -582,6 +582,7 @@ install_packages() {
         if ! pacman_install_D_output=$(pacman -S --noconfirm --needed "${pkgs_official_repo_candidates_D[@]}" 2>&1 | tee /dev/stderr); then
             pacman_install_D_failed_flag=true
         fi
+        log_debug "$pacman_install_D_output"
         for pkg_d_item in "${pkgs_official_repo_candidates_D[@]}"; do
             if is_package_installed "$pkg_d_item"; then pkgs_successfully_installed_by_pacman_E+=("$pkg_d_item");
             else pkgs_failed_to_install_by_pacman_N+=("$pkg_d_item"); fi
@@ -604,6 +605,7 @@ install_packages() {
             if ! aur_install_output=$(run_as_user "$aur_helper -S --noconfirm --needed ${pkgs_identified_for_aur_C[*]}" 2>&1 | tee /dev/stderr); then
                 aur_failed_flag=true
             fi
+            log_debug "$aur_install_output"
             if $aur_failed_flag; then log_warn "AUR 助手 '$aur_helper' 执行时返回了错误状态。"; fi
             for pkg_c_item in "${pkgs_identified_for_aur_C[@]}"; do
                 if is_package_installed "$pkg_c_item"; then pkgs_successfully_installed_by_aur_F+=("$pkg_c_item");
