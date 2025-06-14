@@ -1,26 +1,57 @@
 #!/bin/bash
 
-# 依赖于调用脚本已 source 项目核心的 environment_setup.sh, utils.sh 和 check.sh
-# 因此，项目通用的工具函数、ORIGINAL_HOME, ORIGINAL_USER 等变量以及 check.sh 中的函数和变量已可用。
-# 此脚本不再需要单独 source utils.sh 和 check.sh
-# SOFTWARE_CHECKS 关联数组和 check_item 函数应由 check.sh 提供。
-# 如果需要访问 CHECK_RESULTS，它应该由 zsh-plugins.sh 导出。
-# 假设 CHECK_RESULTS_EXPORT 已导出并在此处 eval。
-declare -A CHECK_RESULTS # 声明以防万一，实际值由 eval 填充
-eval "${CHECK_RESULTS_EXPORT:-}" # 安全地 eval 导出的检查结果
+# Source utility functions and potentially check.sh for check_item function
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+UTILS_PATH="$SCRIPT_DIR/utils.sh"
+CHECK_PATH="$SCRIPT_DIR/check.sh" # Need check_item and SOFTWARE_CHECKS definition
 
-# 使用 ORIGINAL_HOME 定义配置文件路径
-ZSHRC_FILE="${ORIGINAL_HOME}/.zshrc"
-P10K_CONFIG_FILE="${ORIGINAL_HOME}/.p10k.zsh" # 虽然不直接修改，但检查时可能用到
+if [ ! -f "$UTILS_PATH" ]; then
+    echo "错误：无法找到 utils.sh 脚本！路径: $UTILS_PATH"
+    exit 1
+fi
+# shellcheck source=./utils.sh
+source "$UTILS_PATH"
+
+if [ ! -f "$CHECK_PATH" ]; then
+    echo "错误：无法找到 check.sh 脚本！路径: $CHECK_PATH"
+    exit 1
+fi
+# shellcheck source=./check.sh
+# Source check.sh carefully, avoid re-running its main logic if it has guards
+# We mainly need the SOFTWARE_CHECKS definition and check_item function
+# Let's redefine SOFTWARE_CHECKS here to be safe, or ensure check.sh sourcing is safe
+declare -A SOFTWARE_CHECKS
+SOFTWARE_CHECKS=(
+    ["zsh"]="zsh"
+    ["fzf"]="fzf"
+    ["bat"]="bat" # Or batcat
+    ["eza"]="eza"
+    ["git"]="git" # Dependency
+    ["curl"]="curl" # Dependency
+    ["wget"]="wget" # Dependency
+    ["oh-my-zsh"]="$HOME/.oh-my-zsh"
+    ["zsh-syntax-highlighting"]="zsh-syntax-highlighting"
+    ["zsh-autosuggestions"]="zsh-autosuggestions"
+    ["fzf-tab"]="fzf-tab"
+    ["powerlevel10k"]="powerlevel10k"
+    ["meslolgs-font"]="MesloLGS"
+)
+# We also need the check_item function, is_omz_plugin_installed, etc.
+# Sourcing check.sh should provide them if it's written correctly.
+source "$CHECK_PATH"
+
+# 使用 USER_HOME 定义配置文件路径
+ZSHRC_FILE="${USER_HOME}/.zshrc"
+P10K_CONFIG_FILE="${USER_HOME}/.p10k.zsh" # 虽然不直接修改，但检查时可能用到
 
 # 验证安装和配置状态
 verify_installation() {
-    log_notice "开始验证安装和配置状态..."
+    log STEP "开始验证安装和配置状态..."
     local all_verified=true
     declare -A VERIFICATION_RESULTS
 
     # 重新检查所有项目
-    log_info "重新检查软件和插件安装状态..."
+    log INFO "重新检查软件和插件安装状态..."
     for key in "${!SOFTWARE_CHECKS[@]}"; do
         # Reuse check_item from check.sh
         if check_item "$key"; then
@@ -39,7 +70,7 @@ verify_installation() {
     done
 
     # 检查 .zshrc 配置
-    log_info "检查 .zshrc 配置..."
+    log INFO "检查 .zshrc 配置..."
     if [ ! -f "$ZSHRC_FILE" ]; then
         VERIFICATION_RESULTS[".zshrc"]="验证失败 (文件不存在)"
         all_verified=false
@@ -47,7 +78,7 @@ verify_installation() {
         local zshrc_ok=true
         # 检查主题
         if ! grep -qE '^\s*ZSH_THEME="powerlevel10k/powerlevel10k"' "$ZSHRC_FILE"; then
-            log_warn ".zshrc 中未正确配置 Powerlevel10k 主题。"
+            log WARN ".zshrc 中未正确配置 Powerlevel10k 主题。"
             VERIFICATION_RESULTS["ZSH_THEME"]="验证失败 (未设置为 p10k)"
             zshrc_ok=false
         else
@@ -88,11 +119,11 @@ verify_installation() {
                      done
 
                      if ! $plugin_found_in_rc; then
-                         log_warn "插件 '$plugin' 已安装但似乎未在 .zshrc 的 plugins=(...) 数组中启用。"
+                         log WARN "插件 '$plugin' 已安装但似乎未在 .zshrc 的 plugins=(...) 数组中启用。"
                          missing_rc_plugins+=("$plugin")
                          zshrc_ok=false
                      # else
-                         # log_info "插件 '$plugin' 已在 .zshrc 中启用。" # 可选的成功日志
+                         # log INFO "插件 '$plugin' 已在 .zshrc 中启用。" # 可选的成功日志
                      fi
                  fi
              done
@@ -102,18 +133,18 @@ verify_installation() {
                  VERIFICATION_RESULTS["enabled_plugins"]="已配置"
              fi
         else
-            log_warn ".zshrc 中未找到 'plugins=(...)' 行。"
+            log WARN ".zshrc 中未找到 'plugins=(...)' 行。"
             VERIFICATION_RESULTS["plugins_line"]="验证失败 (未找到)"
             zshrc_ok=false
         fi
 
         # 检查别名 (检查一个代表性的别名)
         if command_exists eza && ! grep -q "alias ls='eza'" "$ZSHRC_FILE"; then
-             log_warn ".zshrc 中缺少 eza 的 'ls' 别名。"
+             log WARN ".zshrc 中缺少 eza 的 'ls' 别名。"
              VERIFICATION_RESULTS["aliases"]="验证失败 (缺少 eza 别名)"
              zshrc_ok=false
         elif command_exists bat && ! grep -q "alias cat='bat" "$ZSHRC_FILE" && ! grep -q "alias cat='batcat" "$ZSHRC_FILE"; then
-             log_warn ".zshrc 中缺少 bat/batcat 的 'cat' 别名。"
+             log WARN ".zshrc 中缺少 bat/batcat 的 'cat' 别名。"
              VERIFICATION_RESULTS["aliases"]="验证失败 (缺少 bat/cat 别名)"
              zshrc_ok=false
         else
@@ -154,54 +185,54 @@ verify_installation() {
 
 
     if $all_verified; then
-        log_info "所有主要项目已成功安装和配置！"
+        log INFO "所有主要项目已成功安装和配置！"
         return 0
     else
-        log_warn "部分项目未能成功验证。请检查上面的日志。"
+        log WARN "部分项目未能成功验证。请检查上面的日志。"
         return 1
     fi
 }
 
 # 提供最终用户指导
 provide_guidance() {
-    log_notice "后续步骤和建议"
+    log STEP "后续步骤和建议"
 
     echo ""
-    log_info "1. 应用更改:"
-    log_info "   请重新启动您的终端，或者在当前 Zsh 会话中运行以下命令来加载新的配置:"
+    log INFO "1. 应用更改:"
+    log INFO "   请重新启动您的终端，或者在当前 Zsh 会话中运行以下命令来加载新的配置:"
     echo "     source ~/.zshrc"
     echo ""
 
-    log_info "2. Powerlevel10k 配置:"
+    log INFO "2. Powerlevel10k 配置:"
     if command_exists p10k; then
-        log_info "   Powerlevel10k 主题已安装。为了获得最佳视觉效果和个性化提示符，强烈建议运行配置向导:"
+        log INFO "   Powerlevel10k 主题已安装。为了获得最佳视觉效果和个性化提示符，强烈建议运行配置向导:"
         echo "     p10k configure"
-        log_info "   该向导将引导您完成字体检查和样式选择。"
+        log INFO "   该向导将引导您完成字体检查和样式选择。"
     else
-        log_warn "   未检测到 p10k 命令，Powerlevel10k 可能未正确安装或配置。"
+        log WARN "   未检测到 p10k 命令，Powerlevel10k 可能未正确安装或配置。"
     fi
     echo ""
 
-    log_info "3. 终端字体设置:"
+    log INFO "3. 终端字体设置:"
     if [[ "${VERIFICATION_RESULTS[meslolgs-font]}" == *"安装"* ]]; then # Check if font installation was attempted/verified
-        log_info "   脚本已尝试安装 'MesloLGS NF' 字体。请确保在您的终端模拟器 (例如 GNOME Terminal, Konsole, iTerm2, Windows Terminal) 的设置中选择此字体。"
-        log_info "   如果字体未显示或字符显示不正确 (例如出现方框或问号)，请确保:"
-        log_info "     a) 字体已成功安装 (您可能需要重启系统或运行 'fc-cache -fv' (仅Linux))。"
-        log_info "     b) 您已在终端的配置文件中正确选择了 'MesloLGS NF' 或类似名称的字体。"
-        log_info "     c) 您的终端支持 Nerd Fonts 或 Powerline 符号。"
+        log INFO "   脚本已尝试安装 'MesloLGS NF' 字体。请确保在您的终端模拟器 (例如 GNOME Terminal, Konsole, iTerm2, Windows Terminal) 的设置中选择此字体。"
+        log INFO "   如果字体未显示或字符显示不正确 (例如出现方框或问号)，请确保:"
+        log INFO "     a) 字体已成功安装 (您可能需要重启系统或运行 'fc-cache -fv' (仅Linux))。"
+        log INFO "     b) 您已在终端的配置文件中正确选择了 'MesloLGS NF' 或类似名称的字体。"
+        log INFO "     c) 您的终端支持 Nerd Fonts 或 Powerline 符号。"
     else
-        log_info "   未安装或验证 MesloLGS 字体。如果您打算使用 Powerlevel10k，请手动安装推荐字体并配置终端。"
+        log INFO "   未安装或验证 MesloLGS 字体。如果您打算使用 Powerlevel10k，请手动安装推荐字体并配置终端。"
     fi
     echo ""
 
-    log_info "4. 检查配置文件:"
-    log_info "   您可以检查 '$ZSHRC_FILE' 文件以查看所做的更改。备份文件位于 '${ZSHRC_FILE}.backup_...'。"
+    log INFO "4. 检查配置文件:"
+    log INFO "   您可以检查 '$ZSHRC_FILE' 文件以查看所做的更改。备份文件位于 '${ZSHRC_FILE}.backup_...'。"
     if [ -f "$P10K_CONFIG_FILE" ]; then
-        log_info "   Powerlevel10k 的配置文件位于 '$P10K_CONFIG_FILE'。"
+        log INFO "   Powerlevel10k 的配置文件位于 '$P10K_CONFIG_FILE'。"
     fi
     echo ""
 
-    log_info "5. 享受您的新 Zsh 环境！"
+    log INFO "5. 享受您的新 Zsh 环境！"
     echo ""
 }
 
@@ -211,7 +242,7 @@ run_post_install_checks() {
         provide_guidance
         return 0
     else
-        log_error "安装或配置验证失败。请仔细检查日志以了解详细信息。"
+        log ERROR "安装或配置验证失败。请仔细检查日志以了解详细信息。"
         provide_guidance # 仍然提供指导，因为部分可能成功了
         return 1
     fi
