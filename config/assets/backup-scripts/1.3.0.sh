@@ -116,6 +116,13 @@ TARGET_BACKUP_USER=""
 TARGET_BACKUP_UID=""
 TARGET_BACKUP_GID=""
 TARGET_BACKUP_HOME=""
+# === 处理可能未定义的 sudo 相关环境变量，以兼容 set -u ===
+# 如果这些变量在环境中未设置（例如通过 cron 运行），则将其视为空字符串。
+# 这样后续的 [[ -n "$SUDO_USER" ]] 判断仍然能正确工作（空字符串长度为0，-n 为假），
+# 并且直接引用如 $SUDO_USER 也不会因“未绑定变量”而报错。
+SUDO_USER="${SUDO_USER:-}"
+SUDO_UID="${SUDO_UID:-}"   # SUDO_UID 通常由 sudo 设置，但 cron 环境下可能没有
+SUDO_GID="${SUDO_GID:-}"   # SUDO_GID 通常由 sudo 设置，但 cron 环境下可能没有
 
 PARALLEL_CMD=""
 
@@ -565,6 +572,7 @@ load_config() {
     # _setup_final_log_path 将在配置加载后被调用来确定最终日志路径
     # log_msg 在此之前可能使用初始的 ACTUAL_LOG_FILE
     log_msg INFO "开始加载配置文件..."
+    log_msg INFO "获取目标用户信息, 用于确定用户特定配置文件路径"
     get_target_backup_user_info # 获取目标用户信息, 用于确定用户特定配置文件路径
 
     local config_file_search_paths=()
@@ -1607,8 +1615,13 @@ main() {
     log_msg INFO "脚本PID: $SCRIPT_PID / 会话时间戳: $SESSION_TIMESTAMP"
     log_msg INFO "实际日志文件: $ACTUAL_LOG_FILE"
     log_msg INFO "执行用户 (有效): $EFFECTIVE_USER (UID: $EFFECTIVE_UID)"
-    if [[ -n "$SUDO_USER" ]]; then
-        log_msg INFO "通过 sudo 调用，调用 sudo 的用户 (SUDO_USER): $SUDO_USER (UID: ${SUDO_UID:-N/A}, GID: ${SUDO_GID:-N/A})"
+    # if [[ -n "$SUDO_USER" ]]; then
+    #     log_msg INFO "通过 sudo 调用，调用 sudo 的用户 (SUDO_USER): $SUDO_USER (UID: ${SUDO_UID:-N/A}, GID: ${SUDO_GID:-N/A})"
+    # fi
+    if [[ -n "$SUDO_USER" ]]; then # 如果 SUDO_USER 经过上面的处理，即使为空也不会报错
+        # 即使 SUDO_USER 存在，SUDO_UID 和 SUDO_GID 也可能不存在（取决于 sudo 版本和配置）
+        # 所以对它们使用参数扩展提供默认值是安全的。
+        log_msg INFO "通过 sudo 调用，调用 sudo 的用户 (SUDO_USER): ${SUDO_USER} (UID: ${SUDO_UID:-未设置/N/A}, GID: ${SUDO_GID:-未设置/N/A})"
     fi
     log_msg INFO "用于家目录备份的目标用户信息: User='${TARGET_BACKUP_USER:-未指定/无效}', UID='${TARGET_BACKUP_UID:-N/A}', GID='${TARGET_BACKUP_GID:-N/A}', Home='${TARGET_BACKUP_HOME:-N/A}'"
     log_msg INFO "加载的配置文件: ${LOADED_CONFIG_FILE:-未找到，使用默认值或新生成的模板}"
