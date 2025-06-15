@@ -30,6 +30,10 @@
 #   如果未找到配置文件，脚本会提议生成一个默认配置文件。
 # -----------------------------------------------------------------------------
 # 更新日志 (Changelog):
+#   1.3.1 (2025-06-17):
+#     - 给arch_back补齐函数注释
+#     - 添加一个user目录下的排除项logs
+#     - 发现一个新问题，增量路径失效，下个版本修复
 #   1.3.0 (2025-06-17):
 #     - 新增 `trap ERR` 错误处理机制，记录更详细的错误位置信息。
 #     - 新增备份验证功能：在每个主要备份子目录内生成 `MANIFEST.txt` 文件。
@@ -353,7 +357,13 @@ confirm_action() {
 
 ################################################################################
 # 检查脚本运行所需的依赖工具是否已安装。
-# (Now checks for nice/ionice if configured)
+# Globals:
+#   None
+# Arguments:
+#   $@ - 需要检查的依赖工具名称列表。
+# Returns:
+#   0 如果所有依赖都存在。
+#   脚本会以状态码 1 退出，如果任何依赖缺失。
 ################################################################################
 check_dependencies() {
     local missing_deps=0
@@ -410,8 +420,24 @@ check_dependencies() {
 }
 
 ################################################################################
-# 获取并设置用于备份家目录的目标用户的信息。
-# (unchanged from original)
+# 获取并设置用于备份家目录的目标用户的信息 (用户名, UID, GID, 家目录路径)。
+# 优先使用 CONF_TARGET_USERNAME 配置项。如果未配置，则尝试使用 SUDO_USER
+# (如果脚本通过 sudo 执行且 SUDO_USER 不是 root)。
+# 如果两者都不可用或无效，则 TARGET_BACKUP_* 变量可能为空，
+# 后续的用户数据备份任务将跳过。
+# Globals:
+#   CONF_TARGET_USERNAME (R)  配置文件中指定的目标用户名。
+#   SUDO_USER            (R)  环境变量，表示原始 sudo 用户。
+#   USER                 (R)  环境变量，表示当前用户。
+#   HOME                 (R)  环境变量，表示当前用户的家目录。
+#   TARGET_BACKUP_USER   (W)  设置目标用户名。
+#   TARGET_BACKUP_UID    (W)  设置目标用户的 UID。
+#   TARGET_BACKUP_GID    (W)  设置目标用户的 GID。
+#   TARGET_BACKUP_HOME   (W)  设置目标用户的家目录。
+# Arguments:
+#   None
+# Returns:
+#   None. 直接修改全局变量。
 ################################################################################
 get_target_backup_user_info() {
     local user_to_query=""
@@ -536,6 +562,7 @@ CONF_USER_HOME_EXCLUDE=(
     "arch_backup.conf"   # 避免备份脚本自身的配置文件 (如果在家目录)
     ".DS_Store"
     "Thumbs.db"
+    "logs"
 )
 
 # === 自定义路径配置 (仅当 CONF_BACKUP_CUSTOM_PATHS="true") ===
@@ -756,7 +783,15 @@ load_config() {
 
 ################################################################################
 # 检查指定路径上的可用磁盘空间百分比。
-# (unchanged from original)
+# Globals:
+#   None
+# Arguments:
+#   $1 - 需要检查磁盘空间的路径。
+#   $2 - 要求的最小剩余磁盘空间百分比。
+# Returns:
+#   0 如果磁盘空间充足。
+#   脚本会以状态码 1 退出，如果磁盘空间不足。
+#   如果无法获取磁盘空间信息，则记录警告并返回 0 (跳过检查)。
 ################################################################################
 check_disk_space() {
     local path_to_check="$1"
@@ -846,7 +881,21 @@ _generate_manifest() {
 
 ################################################################################
 # 执行通用的 rsync 备份操作。
-# (Now includes resource control prefix and manifest generation)
+# 此函数被其他特定备份任务函数调用。
+# Globals:
+#   BACKUP_TARGET_DIR_UNCOMPRESSED (R) - 未压缩备份的根目录。
+#   CURRENT_TIMESTAMP              (R) - 当前备份的时间戳。
+#   CONF_USER_HOME_EXCLUDE         (R) - 用户家目录的排除列表 (如果 task_name 是 "用户数据")。
+#   CONF_CUSTOM_PATHS_EXCLUDE      (R) - 自定义路径的排除列表 (如果 task_name 是 "自定义路径")。
+#   SCRIPT_NAME                    (R) - 用于生成临时文件名。
+# Arguments:
+#   $1 - 备份任务的描述性名称 (用于日志)。
+#   $2 - 在当前时间戳目录下创建的目标子目录名称 (如 "etc", "home_USER")。
+#   $3 - rsync 的 --link-dest 选项字符串 (如果启用增量备份) 或空字符串。
+#   $@ - (从第四个参数开始) 一个或多个要备份的源文件/目录路径。
+# Returns:
+#   0 如果 rsync 成功完成。
+#   rsync 的退出码如果失败。
 ################################################################################
 _perform_rsync_backup() {
     local task_name="$1"
@@ -925,7 +974,14 @@ _perform_rsync_backup() {
 
 ################################################################################
 # 备份系统配置文件 (通常是 /etc)。
-# (unchanged from original, relies on _perform_rsync_backup modifications)
+# Globals:
+#   CONF_BACKUP_SYSTEM_CONFIG (R) - 是否启用此备份类别。
+#   EFFECTIVE_UID             (R) - 当前脚本的有效用户ID。
+# Arguments:
+#   $1 - (传递给 _perform_rsync_backup) rsync 的 --link-dest 选项。
+# Returns:
+#   0 如果成功或跳过。
+#   1 如果因权限问题而跳过或 _perform_rsync_backup 失败。
 ################################################################################
 backup_system_config() {
     if [[ "$CONF_BACKUP_SYSTEM_CONFIG" != "true" ]]; then log_msg INFO "[系统配置] 跳过备份 (未启用)。"; return 0; fi
@@ -940,7 +996,16 @@ backup_system_config() {
 
 ################################################################################
 # 备份目标用户的家目录中的选定文件和数据。
-# (unchanged from original, relies on _perform_rsync_backup modifications)
+# Globals:
+#   CONF_BACKUP_USER_DATA    (R) - 是否启用此备份类别。
+#   TARGET_BACKUP_USER       (R) - 目标用户名。
+#   TARGET_BACKUP_HOME       (R) - 目标用户家目录。
+#   CONF_USER_HOME_INCLUDE   (R) - 要包含在家目录备份中的项目列表。
+# Arguments:
+#   $1 - (传递给 _perform_rsync_backup) rsync 的 --link-dest 选项。
+# Returns:
+#   0 如果成功、跳过或没有有效源。
+#   如果 _perform_rsync_backup 失败则返回其退出码。
 ################################################################################
 backup_user_data() {
     if [[ "$CONF_BACKUP_USER_DATA" != "true" ]]; then log_msg INFO "[用户数据] 跳过备份 (未启用)。"; return 0; fi
@@ -972,7 +1037,14 @@ backup_user_data() {
 
 ################################################################################
 # 备份已安装的软件包列表。
-# (Now includes manifest generation)
+# Globals:
+#   CONF_BACKUP_PACKAGES             (R) - 是否启用此备份类别。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED (R)
+#   CURRENT_TIMESTAMP              (R)
+# Arguments:
+#   None
+# Returns:
+#   0 总是成功 (除非 pacman 命令严重失败，但这通常不会中止脚本)。
 ################################################################################
 backup_packages() {
     if [[ "$CONF_BACKUP_PACKAGES" != "true" ]]; then log_msg INFO "[软件包列表] 跳过备份 (未启用)。"; return 0; fi
@@ -1013,7 +1085,18 @@ backup_packages() {
 
 ################################################################################
 # 备份系统日志 (journalctl 输出和 /var/log 下的指定文件)。
-# (Now includes manifest generation)
+# Globals:
+#   CONF_BACKUP_LOGS                 (R) - 是否启用此备份类别。
+#   CONF_BACKUP_JOURNALCTL           (R) - 是否备份 journalctl。
+#   CONF_JOURNALCTL_ARGS             (R) - journalctl 的参数。
+#   CONF_SYSTEM_LOG_FILES            (R) - /var/log 下要备份的文件列表。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED (R)
+#   CURRENT_TIMESTAMP              (R)
+#   EFFECTIVE_UID                  (R)
+# Arguments:
+#   None
+# Returns:
+#   0 总是成功 (日志备份中的错误通常视为非关键)。
 ################################################################################
 backup_logs() {
     if [[ "$CONF_BACKUP_LOGS" != "true" ]]; then log_msg INFO "[系统日志] 跳过备份 (未启用)。"; return 0; fi
@@ -1062,7 +1145,16 @@ backup_logs() {
 
 ################################################################################
 # 备份用户在配置文件中指定的自定义文件或目录路径。
-# (unchanged from original, relies on _perform_rsync_backup modifications)
+# Globals:
+#   CONF_BACKUP_CUSTOM_PATHS (R) - 是否启用此备份类别。
+#   CONF_CUSTOM_PATHS_INCLUDE (R) - 要包含的自定义路径列表。
+#   EFFECTIVE_UID             (R)
+# Arguments:
+#   $1 - (传递给 _perform_rsync_backup) rsync 的 --link-dest 选项。
+# Returns:
+#   0 如果成功、跳过或没有有效源。
+#   1 如果某些路径因权限问题无法访问且脚本非 root 运行。
+#   如果 _perform_rsync_backup 失败则返回其退出码。
 ################################################################################
 backup_custom_paths() {
     if [[ "$CONF_BACKUP_CUSTOM_PATHS" != "true" ]]; then log_msg INFO "[自定义路径] 跳过备份 (未启用)。"; return 0; fi
@@ -1117,7 +1209,16 @@ backup_custom_paths() {
 
 ################################################################################
 # 压缩指定的未压缩备份目录，并在成功和校验后选择性删除原目录。
-# (Now includes resource control prefix and timing)
+# Globals:
+#   BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES (R) - 压缩归档的存放目录。
+#   CONF_COMPRESSION_EXT                  (R) - 压缩文件的扩展名。
+#   CONF_COMPRESSION_METHOD               (R) - 压缩方法 (gzip, bzip2, xz)。
+#   CONF_COMPRESSION_LEVEL                (R) - 压缩级别。
+# Arguments:
+#   $1 - 要压缩的未压缩备份目录的完整路径。
+# Returns:
+#   0 如果压缩和校验成功 (无论原目录是否被删除)。
+#   1 如果压缩或校验失败。
 ################################################################################
 compress_and_verify_backup() {
     local uncompressed_dir_path="$1"
@@ -1227,7 +1328,18 @@ compress_and_verify_backup() {
 
 ################################################################################
 # 清理旧的备份，包括压缩超期的未压缩快照和删除超期的压缩归档。
-# (unchanged from original for logic, but calls modified compress_and_verify_backup)
+# Globals:
+#   CONF_RETENTION_UNCOMPRESSED_COUNT   (R) - 保留的未压缩快照数量。
+#   CONF_COMPRESSION_ENABLE             (R) - 是否启用压缩。
+#   CONF_RETENTION_COMPRESSED_DAYS      (R) - 压缩归档按天数保留的策略。
+#   CONF_RETENTION_COMPRESSED_COUNT     (R) - 压缩归档按数量保留的策略。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED    (R)
+#   BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES (R)
+#   CONF_COMPRESSION_EXT                (R)
+# Arguments:
+#   None
+# Returns:
+#   0 (总是，清理过程中的错误被记录但不中止脚本)。
 ################################################################################
 cleanup_backups() {
     log_msg INFO "[清理] 开始执行备份清理流程..."
@@ -1431,7 +1543,14 @@ cleanup_backups() {
 
 ################################################################################
 # 主备份流程编排函数。
-# (Exports more vars for parallel, logs timings)
+# 负责初始化备份、执行各项备份任务 (串行或并行)、以及后续的清理工作。
+# Globals:
+#   (许多 CONF_* 和运行时变量)
+# Arguments:
+#   None
+# Returns:
+#   0 如果整个备份和清理流程成功。
+#   1 如果流程中发生任何关键错误。
 ################################################################################
 run_backup() {
     local backup_start_time
@@ -1643,7 +1762,14 @@ run_backup() {
 
 ################################################################################
 # 脚本的主入口函数。
-# (Initializes logging earlier, calls log cleanup)
+# 初始化、加载配置、检查依赖、然后调用 run_backup 执行备份流程。
+# Globals:
+#   (许多)
+# Arguments:
+#   $@ - 传递给脚本的命令行参数 (当前未使用)。
+# Returns:
+#   0 如果脚本成功完成。
+#   1 如果发生错误。
 ################################################################################
 main() {
     # Provisional log setup before config is loaded.
