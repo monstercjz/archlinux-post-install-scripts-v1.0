@@ -130,9 +130,12 @@ ASSETS_DIR="${CONFIG_DIR}/assets"
 ANOTHER_MODULES_DIR="${BASE_DIR}/modules-another" # 假设与 config/ 目录并列，已在 main_config.sh 中声明
 
 # 赋值 LOG_ROOT (依赖 BASE_DIR 和 LOG_ROOT_RELATIVE_TO_BASE)。LOG_ROOT 已在 main_config.sh 中声明。
-LOG_ROOT="${BASE_DIR}/${LOG_ROOT_RELATIVE_TO_BASE}"
+# LOG_ROOT="${BASE_DIR}/${LOG_ROOT_RELATIVE_TO_BASE}"--这是自动设置的，改为固定其他路径/var/log/arch_backups_logs
+LOG_ROOT="/var/log/arch_backups_logs/${LOG_ROOT_RELATIVE_TO_BASE}"
+
 # 赋值 GLOBAL_BACKUP_ROOT (依赖 BASE_DIR 和 GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE)。GLOBAL_BACKUP_ROOT 已在 main_config.sh 中声明。
-GLOBAL_BACKUP_ROOT="${BASE_DIR}/${GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE}"
+# GLOBAL_BACKUP_ROOT="${BASE_DIR}/${GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE}"---这是自动设置的，改为固定其他路径/mnt/arch_backups
+GLOBAL_BACKUP_ROOT="/mnt/arch_backups/${GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE}"
 
 # 填充 BASE_PATH_MAP 关联数组。该数组已在 main_config.sh 中声明。
 # 注意：在 utils.sh 加载后会打印调试信息。

@@ -5,7 +5,7 @@
 # 或者放在 /tmp 或 $HOME/.cache/zsh-plugins/
 # 这里我们选择放在脚本目录内，方便查找
 # LOG_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)/../logs" # ../logs 目录
-LOG_DIR="/var/log/arch-init"
+LOG_DIR="/var/log/arch_backups_logs//arch-init"
 LOG_FILE="$LOG_DIR/zsh-plugins-install_$(date +%Y%m%d_%H%M%S).log"
 # 确保日志目录存在
 sudo mkdir -p "$LOG_DIR" || echo "警告：无法创建日志目录 $LOG_DIR" >&2

@@ -66,7 +66,7 @@ export ORIGINAL_HOME   # 调用 sudo 的原始用户的家目录
 export DOTFILES_LOCAL_PATH # 点文件在本地克隆的绝对路径 (依赖 ORIGINAL_HOME)
 
 # --- 日志配置 (LOG_ROOT_RELATIVE_TO_BASE 为可配置默认值，LOG_ROOT 为动态派生) ---
-export LOG_ROOT_RELATIVE_TO_BASE="logs" # 日志文件存放的根目录，相对于项目根目录 (BASE_DIR) 的路径
+export LOG_ROOT_RELATIVE_TO_BASE="arch_post_installation_logs" # 日志文件存放的根目录，相对于项目根目录 (BASE_DIR) 的路径
 export LOG_ROOT        # 日志文件根目录的绝对路径 (由 environment_setup.sh 动态计算并赋值)
 export CURRENT_DAY_LOG_DIR # 当前日期日志目录的绝对路径 (由 initialize_logging_system 动态计算并赋值)
 export CURRENT_SCRIPT_LOG_FILE # 当前脚本日志文件的绝对路径 (由 initialize_logging_system 动态计算并赋值)

@@ -11,7 +11,7 @@
 # 使用方法:
 #   1. 建议以 sudo 运行脚本，以便写入 /var/log 目录: sudo ./package_stats_with_versions.sh
 #   2. 根据提示选择排序方式。
-#   3. 统计结果将保存到 save_dir="/var/backups/manual_install_packages" 目录。
+#   3. 统计结果将保存到 save_dir="/mnt/arch_backups/hook_manual_install_packages" 目录。
 #   4. 可以使用生成的软件包名称列表文件在新系统上一键安装所有软件包。
 # 作者: [Your Name/AI Assistant]
 # 版本: 4.1 (incorporating version info)
@@ -278,7 +278,7 @@ show_package_stats() {
     echo -e "${GREEN}2. 按软件包大小排序（最大的在前）${NC}"
     echo -e "${GREEN}3. 按软件包名称排序${NC}"
     
-    local save_dir="/var/backups/manual_install_packages"
+    local save_dir="/mnt/arch_backups/hook_manual_install_packages"
     if [ ! -d "$save_dir" ]; then
         echo -e "${YELLOW}创建保存目录: $save_dir (需要sudo权限)${NC}"
         mkdir -p "$save_dir" # Assumes script is run with sudo or user has rights

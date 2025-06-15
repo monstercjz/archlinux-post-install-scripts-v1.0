@@ -104,7 +104,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 
 # @var string PACMAN_CONF Pacman 配置文件路径，从 main_config.sh 获取。
 PACMAN_CONF="${PACMAN_CONF_PATH}"
-PACMANCONF="pacnmanconf"
+PACMANCONF="pacnman_conf"
 # @var string PACMAN_CONF_BACKUP_DIR 备份目录，在 pacman.conf 文件所在目录创建一个 backups 子目录。
 PACMAN_CONF_BACKUP_DIR="${GLOBAL_BACKUP_ROOT}/${PACMANCONF}"
 # @var int MAX_BACKUP_FILES_PACMAN_CONF 最大保留的 pacman.conf 备份文件数量，从 main_config.sh 获取。

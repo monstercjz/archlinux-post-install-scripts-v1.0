@@ -347,7 +347,7 @@ main() {
 
     local cron_schedule_string="$_SELECTED_CRON_SCHEDULE_RESULT" # 使用全局变量的结果
 
-    local cron_log_dir="/var/log/arch_system_backup_cron"
+    local cron_log_dir="/var/log/arch_backups_logs/arch_system_backup_cron_logs"
     _create_directory_if_not_exists "$cron_log_dir"
     local cron_output_log="${cron_log_dir}/cron_execution.log"
     touch "$cron_output_log" && chmod 644 "$cron_output_log"

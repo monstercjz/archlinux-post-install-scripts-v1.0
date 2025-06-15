@@ -2,9 +2,9 @@
 
 # --- 配置 ---
 # 备份目标目录 (请确保此目录存在且 pacman (root) 有写入权限)
-BACKUP_DIR="/var/backups/pacman_history"
+BACKUP_DIR="/mnt/arch_backups/hook_pacman_history"
 # 日志文件 (记录此脚本的执行情况，可选)
-LOG_FILE="/var/log/backup-pacman-info.log"
+LOG_FILE="/var/log/arch_backups_logs/hook_backup_pacman_info_logs/backup-pacman-info.log"
 # --- End 配置 ---
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
