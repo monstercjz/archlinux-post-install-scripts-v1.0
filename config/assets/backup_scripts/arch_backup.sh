@@ -262,7 +262,7 @@ _setup_final_log_path() {
         if [[ "$(basename "$log_dir")" == "${SCRIPT_NAME}.log" || "$(basename "$log_dir")" == "$SCRIPT_NAME" ]]; then
             log_dir=$(dirname "$log_dir")
         fi
-        final_log_path_candidate="${log_dir%/}/${SCRIPT_NAME}_${SESSION_TIMESTAMP}.log"
+        final_log_path_candidate="${log_dir%/}/${SCRIPT_NAME}_${GLOBAL_RUN_TIMESTAMP}.log"
     fi
 
     ACTUAL_LOG_FILE="$final_log_path_candidate" # 更新全局实际日志文件路径
@@ -310,7 +310,7 @@ _setup_final_log_path() {
 # Returns:
 #   None
 ################################################################################
-cleanup_old_logs() {
+cleanup_old_logs_bydays() {
     if [[ "$CONF_LOG_TIMESTAMPED" != "true" || "${CONF_LOG_RETENTION_DAYS:-0}" -le 0 ]]; then
         return 0
     fi
@@ -335,6 +335,262 @@ cleanup_old_logs() {
     done < <(find "$log_dir_to_clean" -maxdepth 1 -type f -name "$find_name_pattern" -mtime "+$CONF_LOG_RETENTION_DAYS" -print0)
     
     log_msg INFO "[Log Cleanup] Deleted $deleted_count old log file(s)."
+}
+
+################################################################################
+# 清理旧的带时间戳的日志文件。
+# Globals:
+#   CONF_LOG_TIMESTAMPED (R) - 是否启用时间戳日志。
+#   CONF_LOG_FILE (R)        - 当时间戳启用时，作为日志目录。
+#   CONF_RETENTION_UNCOMPRESSED_COUNT (R) - 用作保留的最新日志文件数量。
+#   SCRIPT_NAME (R)          - 脚本名称，用于匹配日志文件名。
+# Arguments:
+#   None
+# Returns:
+#   None
+################################################################################
+cleanup_old_logs_bycounts() {
+    # 仅当启用了时间戳日志时才执行清理
+    if [[ "$CONF_LOG_TIMESTAMPED" != "true" ]]; then
+        log_msg DEBUG "[Log Cleanup] 时间戳日志未启用，跳过日志清理。"
+        return 0
+    fi
+
+    # 从 CONF_RETENTION_UNCOMPRESSED_COUNT 获取要保留的日志数量
+    # 如果该值未设置或无效，则设置一个合理的默认值，例如 7
+    local max_log_files_to_keep="${CONF_RETENTION_UNCOMPRESSED_COUNT:-7}"
+    if ! [[ "$max_log_files_to_keep" =~ ^[0-9]+$ ]] || [[ "$max_log_files_to_keep" -le 0 ]]; then
+        log_msg WARN "[Log Cleanup] 无效的 CONF_RETENTION_UNCOMPRESSED_COUNT 值 ('$max_log_files_to_keep') 用于日志保留。将使用默认值 7。"
+        max_log_files_to_keep=7
+    fi
+
+    # 获取日志目录路径
+    # CONF_LOG_FILE 在时间戳模式下应为目录
+    local log_dir_to_clean="$CONF_LOG_FILE"
+    if [[ ! -d "$log_dir_to_clean" ]]; then
+        # 检查 CONF_LOG_FILE 是否被错误地配置为一个文件名
+        if [ -f "$log_dir_to_clean" ]; then
+            log_dir_to_clean=$(dirname "$log_dir_to_clean")
+            if [[ ! -d "$log_dir_to_clean" ]]; then
+                 log_msg WARN "[Log Cleanup] 日志目录 '$log_dir_to_clean' (从 '$CONF_LOG_FILE' 推断) 无效或不存在。跳过日志清理。"
+                 return 1
+            fi
+        else
+            log_msg WARN "[Log Cleanup] 日志目录 '$CONF_LOG_FILE' 无效或不存在。跳过日志清理。"
+            return 1
+        fi
+    fi
+
+    log_msg INFO "[Log Cleanup] 开始清理日志文件，将保留最新的 $max_log_files_to_keep 个日志 (基于 CONF_RETENTION_UNCOMPRESSED_COUNT)。"
+    log_msg DEBUG "[Log Cleanup] 日志目录: '$log_dir_to_clean'."
+
+    # 构建日志文件名的查找模式
+    # 假设日志文件名格式为: SCRIPT_NAME_YYYYMMDD_HHMMSS.log
+    local find_name_pattern="${SCRIPT_NAME}_*.log"
+    local deleted_count=0
+    local kept_count=0
+
+    # 获取所有匹配的日志文件，并按修改时间排序 (最新的在前)
+    # 使用 find -printf "%T@ %p\n" 获取时间戳和路径，然后 sort -nr，再 cut 路径
+    # 或者，如果文件名中的时间戳是可靠的，可以直接对文件名排序
+    # 假设文件名中的时间戳是 YYYYMMDD_HHMMSS，可以直接用 ls -t (按修改时间) 或 sort (按文件名)
+
+    # 使用 find 和 sort 按修改时间获取文件列表 (最新的在前)
+    local log_files_sorted_newest_first=()
+    mapfile -t log_files_sorted_newest_first < <(find "$log_dir_to_clean" -maxdepth 1 -type f -name "$find_name_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -nr | cut -d' ' -f2-)
+
+    if [[ ${#log_files_sorted_newest_first[@]} -eq 0 ]]; then
+        log_msg INFO "[Log Cleanup] 未找到匹配的日志文件 ('$find_name_pattern') 于 '$log_dir_to_clean'。无需清理。"
+        return 0
+    fi
+
+    log_msg DEBUG "[Log Cleanup] 找到 ${#log_files_sorted_newest_first[@]} 个匹配的日志文件。"
+
+    # 遍历文件列表，保留最新的 N 个，删除其余的
+    local current_file_index=0
+    for log_file_path in "${log_files_sorted_newest_first[@]}"; do
+        current_file_index=$((current_file_index + 1))
+        if [[ "$current_file_index" -le "$max_log_files_to_keep" ]]; then
+            log_msg DEBUG "[Log Cleanup] 保留日志文件 (第 $current_file_index 个最新): $log_file_path"
+            kept_count=$((kept_count + 1))
+        else
+            # 超出保留数量，删除此文件
+            log_msg DEBUG "[Log Cleanup] 准备删除旧日志文件: $log_file_path"
+            if rm -f "$log_file_path"; then
+                log_msg INFO "[Log Cleanup] 已删除旧日志文件: $(basename "$log_file_path")"
+                deleted_count=$((deleted_count + 1))
+            else
+                log_msg WARN "[Log Cleanup] 删除旧日志文件 '$log_file_path' 失败。"
+            fi
+        fi
+    done
+    
+    log_msg INFO "[Log Cleanup] 日志清理完成。保留了 $kept_count 个日志文件，删除了 $deleted_count 个旧日志文件。"
+    return 0
+}
+
+
+################################################################################
+# cleanup_old_logs - 清理旧的、与已不存在的备份相关联的日志文件。
+#
+# 工作原理:
+# 1. 此函数仅在时间戳日志模式 (CONF_LOG_TIMESTAMPED="true")下工作。
+# 2. 它会遍历指定日志目录 (CONF_LOG_FILE) 中所有符合命名模式的日志文件。
+# 3. 【核心保护】当前脚本会话正在使用的日志文件 (ACTUAL_LOG_FILE) 会被明确识别并跳过，
+#    确保它绝不会被删除。
+# 4. 对于其他所有旧的日志文件：
+#    a. 从日志文件名中提取其关联的时间戳 (应与GLOBAL_RUN_TIMESTAMP格式一致)。
+#    b. 检查该时间戳对应的未压缩快照 (在 BACKUP_TARGET_DIR_UNCOMPRESSED 中)
+#       或压缩归档 (在 BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES 中) 是否仍然存在。
+#    c. 如果对应的快照和归档均已不存在，则该旧日志文件被视为“孤立的”，并被删除。
+#    d. 否则 (即至少有一个对应的备份存在)，则保留该旧日志文件。
+#
+# Globals (R - Read-only by this function):
+#   CONF_LOG_TIMESTAMPED           - (String) 是否启用时间戳日志 ("true" 或 "false")。
+#   CONF_LOG_FILE                  - (String) 日志文件的存放目录 (当时间戳启用时)。
+#   ACTUAL_LOG_FILE                - (String) 当前脚本会话正在使用的日志文件的完整路径。
+#   SCRIPT_NAME                    - (String) 当前脚本的文件名 (用于匹配日志文件)。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED - (String) 未压缩备份快照的根目录。
+#   BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES - (String) 压缩备份归档的根目录。
+#
+# Globals (Not directly used but relevant for context):
+#   GLOBAL_RUN_TIMESTAMP           - (String) 用于本次运行的日志和备份的统一时间戳。
+#                                    此函数依赖于旧日志文件名中的时间戳与旧备份的
+#                                    时间戳一致的约定（由方案C保证）。
+#
+# Arguments:
+#   None
+#
+# Returns:
+#   0 - 清理成功完成或无需清理。
+#   1 - 如果日志目录无效或在关键步骤发生错误。
+#
+# Side effects:
+#   - 可能会删除日志目录下的旧日志文件。
+#   - 输出日志信息到 ACTUAL_LOG_FILE。
+################################################################################
+cleanup_old_logs() {
+    # 检查时间戳日志功能是否已启用
+    if [[ "${CONF_LOG_TIMESTAMPED:-false}" != "true" ]]; then
+        log_msg DEBUG "[Log Cleanup] 时间戳日志功能未启用。跳过与备份关联的日志清理。"
+        return 0
+    fi
+
+    # 获取并验证日志目录路径
+    # 在时间戳模式下，CONF_LOG_FILE 应被配置为日志文件的父目录
+    local log_dir_to_clean="$CONF_LOG_FILE"
+    if [[ ! -d "$log_dir_to_clean" ]]; then
+        # 尝试从 CONF_LOG_FILE 推断目录，以防用户错误地将其配置为文件名
+        if [ -f "$log_dir_to_clean" ] && [[ "$CONF_LOG_TIMESTAMPED" == "true" ]]; then
+            log_msg DEBUG "[Log Cleanup] CONF_LOG_FILE ('$CONF_LOG_FILE') 似乎是一个文件路径，但期望是目录。尝试使用其父目录。"
+            log_dir_to_clean=$(dirname "$log_dir_to_clean")
+            if [[ ! -d "$log_dir_to_clean" ]]; then
+                 log_msg WARN "[Log Cleanup] 日志目录 '$log_dir_to_clean' (从 '$CONF_LOG_FILE' 推断) 无效或不存在。跳过日志清理。"
+                 return 1
+            fi
+        else
+            log_msg WARN "[Log Cleanup] 日志目录 '$CONF_LOG_FILE' (在CONF_LOG_TIMESTAMPED=true时应为目录路径) 无效或不存在。跳过日志清理。"
+            return 1
+        fi
+    fi
+
+    # 获取当前正在使用的日志文件的基本名称，以便在扫描时排除它
+    local current_log_basename=""
+    if [[ -n "${ACTUAL_LOG_FILE:-}" && -f "${ACTUAL_LOG_FILE:-}" ]]; then
+        current_log_basename=$(basename "$ACTUAL_LOG_FILE")
+    else
+        # 如果无法确定当前日志文件，方案B的直接保护会失效。
+        # 但如果方案C (统一时间戳) 工作正常，当前日志仍会因找到关联备份而被保留。
+        log_msg WARN "[Log Cleanup] 无法确定当前会话日志文件 (ACTUAL_LOG_FILE: '${ACTUAL_LOG_FILE:-未设置}'). 清理时将无法显式跳过当前日志文件，但仍会基于其与备份的关联性进行判断。"
+    fi
+
+    log_msg INFO "[Log Cleanup] 开始扫描并清理旧的、与已不存在的备份相关联的日志文件..."
+    log_msg DEBUG "[Log Cleanup] 日志存放目录: '$log_dir_to_clean'"
+    log_msg DEBUG "[Log Cleanup] 未压缩快照目录: '$BACKUP_TARGET_DIR_UNCOMPRESSED'"
+    log_msg DEBUG "[Log Cleanup] 压缩归档目录: '$BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES'"
+    if [[ -n "$current_log_basename" ]]; then
+        log_msg DEBUG "[Log Cleanup] 当前会话日志文件 '$current_log_basename' 将被自动保留，不参与删除判断。"
+    fi
+
+    local deleted_count=0
+    local kept_due_to_backup_count=0 # 统计因找到关联备份而被保留的 *旧* 日志数量
+    local kept_due_to_error_count=0  # 统计因处理错误（如无法提取时间戳、删除失败）而被保留的 *旧* 日志数量
+    # 日志文件名模式，假设为 SCRIPT_NAME_YYYYMMDD_HHMMSS.log
+    local log_file_pattern="${SCRIPT_NAME}_*.log"
+
+    # 使用 find 安全地遍历日志文件，避免含特殊字符的文件名导致问题
+    # -print0 和 read -d $'\0' 是处理这类问题的标准方法
+        # 使用进程替换，使得 while 循环在当前 shell 上下文执行，以便正确更新计数器
+    while IFS= read -r -d $'\0' log_file_path; do
+        local log_filename
+        log_filename=$(basename "$log_file_path")
+
+        # --- 方案 B 的核心：如果文件名与当前日志文件名相同，则直接跳过后续处理 ---
+        if [[ -n "$current_log_basename" && "$log_filename" == "$current_log_basename" ]]; then
+            # 对当前日志文件不做任何计数，因为它不属于“旧日志”的范畴
+            # log_msg DEBUG "[Log Cleanup]   当前会话日志文件 '$log_filename'，跳过。" # 此日志可省略，因为结尾会统一说明
+            continue
+        fi
+        # --------------------------------------------------------------------------
+
+        # 从旧日志文件名中提取时间戳部分 (应与 GLOBAL_RUN_TIMESTAMP 格式一致)
+        local timestamp_from_log
+        local sed_script_name_safe
+        # sed_script_name_safe=$(echo "$SCRIPT_NAME" | sed 's/[.^$*\[]/\\[&]/g; s/]/\\&/g') # 旧的转义
+        sed_script_name_safe=$(echo "$SCRIPT_NAME" | sed 's/\./\\./g') # 修正后的仅转义点号
+
+        # 提取 SCRIPT_NAME 和 .log 之间的 YYYYMMDD_HHMMSS 部分
+        timestamp_from_log=$(echo "$log_filename" | sed -n "s/^${sed_script_name_safe}_\([0-9]\{8\}_[0-9]\{6\}\)\.log$/\1/p")
+
+        if [[ -z "$timestamp_from_log" ]]; then
+            log_msg WARN "[Log Cleanup] 无法从旧日志文件名 '$log_filename' 中提取有效的时间戳 (期望格式 YYYYMMDD_HHMMSS)。将保留此文件。"
+            kept_due_to_error_count=$((kept_due_to_error_count + 1))
+            continue
+        fi
+
+        log_msg DEBUG "[Log Cleanup] 正在检查旧日志文件 '$log_filename' (提取的时间戳: $timestamp_from_log)..."
+
+        local snapshot_exists=false
+        local archive_exists=false
+
+        # 检查对应的未压缩快照是否存在
+        if [[ -d "${BACKUP_TARGET_DIR_UNCOMPRESSED}/${timestamp_from_log}" ]]; then
+            snapshot_exists=true
+            log_msg DEBUG "[Log Cleanup]     发现对应的未压缩快照: '${BACKUP_TARGET_DIR_UNCOMPRESSED}/${timestamp_from_log}'"
+        fi
+
+        # 检查对应的压缩归档是否存在 (匹配如 .tar.gz, .tar.xz, .tar.bz2 等)
+        if find "${BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES}" -maxdepth 1 -type f -name "${timestamp_from_log}.tar.*" -print -quit 2>/dev/null | grep -q .; then
+            archive_exists=true
+            log_msg DEBUG "[Log Cleanup]     发现对应的压缩归档 (例如: '${BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES}/${timestamp_from_log}.tar.xz')"
+        fi
+
+        # 根据是否存在关联的备份（快照 或 归档）来决定是否保留或删除该旧日志
+        if $snapshot_exists || $archive_exists; then
+            log_msg DEBUG "[Log Cleanup]     对应的备份（快照或归档）仍然存在。保留旧日志文件 '$log_filename'。"
+            kept_due_to_backup_count=$((kept_due_to_backup_count + 1))
+        else
+            log_msg INFO "[Log Cleanup]     对应的备份（快照和归档）均已不存在。准备删除旧日志文件 '$log_filename'。"
+            if rm -f "$log_file_path"; then
+                log_msg INFO "[Log Cleanup]       已删除旧日志文件: $log_filename"
+                deleted_count=$((deleted_count + 1))
+            else
+                log_msg WARN "[Log Cleanup]       删除旧日志文件 '$log_file_path' 失败。"
+                kept_due_to_error_count=$((kept_due_to_error_count + 1)) # 删除失败也视为因错误而保留
+            fi
+        fi
+    done < <(find "$log_dir_to_clean" -maxdepth 1 -type f -name "$log_file_pattern" -print0 2>/dev/null)
+
+    # 循环结束后，总结清理结果
+    if [[ -n "$current_log_basename" ]]; then
+        log_msg INFO "[Log Cleanup] 当前会话日志 '$current_log_basename' 已按设计始终保留，未参与上述旧日志的删除判断。"
+    fi
+    log_msg INFO "[Log Cleanup] 旧日志清理完成。在扫描的旧日志中："
+    log_msg INFO "[Log Cleanup]   - 因找到关联备份而保留: $kept_due_to_backup_count 个文件。"
+    log_msg INFO "[Log Cleanup]   - 因处理错误（如无法提时间戳、删除失败）而保留: $kept_due_to_error_count 个文件。"
+    log_msg INFO "[Log Cleanup]   - 因无关联备份而被删除: $deleted_count 个文件。"
+    
+    return 0
 }
 
 ################################################################################
@@ -512,7 +768,8 @@ CONF_BACKUP_ROOT_DIR="/mnt/arch_backups/auto_backup_systems" # <<<--- 请务必�
 #     例如: CONF_LOG_FILE="/var/log/arch_backup.log"
 #   如果 CONF_LOG_TIMESTAMPED="true", 此为存放带时间戳日志文件的 *目录* 路径。
 #     例如: CONF_LOG_FILE="/var/log/arch_backups_logs" (脚本会自动在此目录下创建 arch_backup.sh_YYYYMMDD_HHMMSS.log)
-CONF_LOG_FILE="/var/log/arch_backups_logs/auto_backups_logs"   # 推荐使用目录路径配合时间戳日志
+#CONF_LOG_FILE="/var/log/arch_backups_logs/auto_backups_logs"   # 推荐使用目录路径配合时间戳日志
+CONF_LOG_FILE="${CONF_BACKUP_ROOT_DIR}/backup_logs"
 CONF_LOG_TIMESTAMPED="true"                 # "true" 为每次运行创建新日志 (推荐), "false" 为追加到单一日志文件
 CONF_LOG_RETENTION_DAYS="30"                # 如果 CONF_LOG_TIMESTAMPED="true", 保留多少天的日志文件 (0 表示不自动删除)
 CONF_LOG_LEVEL="DEBUG"                       # DEBUG, INFO, WARN, ERROR, FATAL_ERROR (FATAL_ERROR会显示所有级别)
@@ -1999,7 +2256,8 @@ run_backup() {
     backup_start_time=$(date +%s)
 
     log_msg INFO "===== 开始 Arch Linux 备份流程 (版本 $SCRIPT_VERSION) ====="
-    CURRENT_TIMESTAMP=$(date '+%Y%m%d_%H%M%S') # This is for backup directory names
+    #CURRENT_TIMESTAMP=$(date '+%Y%m%d_%H%M%S') # This is for backup directory names
+    CURRENT_TIMESTAMP="$GLOBAL_RUN_TIMESTAMP"     # <--- 修改点：使用全局统一的时间戳
     local current_backup_path_uncompressed="${BACKUP_TARGET_DIR_UNCOMPRESSED}/${CURRENT_TIMESTAMP}"
     mkdir -p "$current_backup_path_uncompressed"
     log_msg INFO "当前备份时间戳 (用于目录名): $CURRENT_TIMESTAMP"
@@ -2210,6 +2468,9 @@ main() {
     # Provisional log setup before config is loaded.
     # ACTUAL_LOG_FILE is already defaulted to /tmp/${SCRIPT_NAME}.log
     # The first echo must go to this provisional log.
+    # 使用 export 确保子shell（如果将来有需要）也能访问，尽管对于当前结构可能不是严格必需
+    export GLOBAL_RUN_TIMESTAMP
+    GLOBAL_RUN_TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
     echo "--- $(date '+%Y-%m-%d %H:%M:%S') - $SCRIPT_NAME (PID: $SCRIPT_PID, Version: $SCRIPT_VERSION) - 脚本启动 (日志暂存: $ACTUAL_LOG_FILE) ---" >> "$ACTUAL_LOG_FILE"
 
     if [[ "$EFFECTIVE_UID" -ne 0 ]]; then
