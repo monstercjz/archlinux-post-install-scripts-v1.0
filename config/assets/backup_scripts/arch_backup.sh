@@ -1275,10 +1275,38 @@ backup_system_state_info() {
         uptime || echo "Error: uptime failed"
         echo "----------------------------------------"
 
-        echo ">>> CPU & Memory Overview <<<"
-        lscpu | grep -E 'Model name|Architecture|CPU\(s\)|Thread\(s) per core|Core\(s) per socket' || echo "Warning: lscpu partial info or command failed"
+                echo ">>> CPU & Memory Overview <<<"
+        local lscpu_output
+        # 在子shell中执行，临时设置LANG和LC_ALL为C，以确保英文输出
+        lscpu_output=$( (export LANG=C LC_ALL=C; lscpu) 2>&1 )
+        if [[ $? -eq 0 ]]; then
+            # 对英文输出进行 grep
+            echo "$lscpu_output" | grep -E 'Model name|Architecture|CPU\(s\)|Thread\(s) per core|Core\(s) per socket'
+            if [[ $? -ne 0 ]]; then
+                echo "Warning: lscpu output (in English) did not contain expected keywords. Full lscpu output was:"
+                echo "$lscpu_output"
+            fi
+        else
+            echo "Error: lscpu command failed. Output/Error was:"
+            echo "$lscpu_output"
+        fi
         echo ""
-        free -h | grep -E '^Mem:|^Swap:' || echo "Warning: free command failed"
+
+        local free_output
+        # 同样，为 free 命令也设置 LANG 和 LC_ALL
+        free_output=$( (export LANG=C LC_ALL=C; free -h) 2>&1 )
+        if [[ $? -eq 0 ]]; then
+            # 对英文输出进行 grep
+            echo "$free_output" | grep -E '^Mem:|^Swap:'
+            if [[ $? -ne 0 ]]; then
+                echo "Warning: free -h output (in English) did not contain expected keywords. Full free -h output was:"
+                echo "$free_output"
+            fi
+        else
+            echo "Error: free -h command failed. Output/Error was:"
+            echo "$free_output"
+        fi
+        echo ""
         echo "----------------------------------------"
 
         echo ">>> Key Disk Usage (df -hT) <<<"
@@ -1421,11 +1449,12 @@ backup_system_state_info() {
         systemctl list-timers --all --no-pager || echo "Error: systemctl list-timers --all failed"
         echo "----------------------------------------"
 
+        log_msg DEBUG "[系统状态信息] 尝试获取用户 '${CONF_TARGET_USERNAME}' 的 systemd --user enabled units via systemctl --machine"
         # 目标用户的 Systemd Enabled Unit Files (如果 CONF_TARGET_USERNAME 已设置且有效，且脚本以root运行)
         if [[ -n "${CONF_TARGET_USERNAME:-}" && "$CONF_TARGET_USERNAME" != "root" ]]; then
                 echo ">>> User '${CONF_TARGET_USERNAME}' Enabled Unit Files (systemctl --user list-unit-files --state=enabled) <<<"
                 if [[ "$EFFECTIVE_UID" -eq 0 ]]; then # 确保当前是 root
-                    log_msg DEBUG "[系统状态信息] 尝试获取用户 '${CONF_TARGET_USERNAME}' 的 systemd --user enabled units via systemctl --machine"
+                    
 
                     # 使用您测试成功的方法，并明确指定目标用户名
                     systemctl --machine="${CONF_TARGET_USERNAME}@.host" \
