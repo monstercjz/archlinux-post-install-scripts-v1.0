@@ -30,6 +30,8 @@
 #   如果未找到配置文件，脚本会提议生成一个默认配置文件。
 # -----------------------------------------------------------------------------
 # 更新日志 (Changelog):
+#   1.3.2 (2025-06-17):
+#     - 修复增量路径的问题，改用绝对路径
 #   1.3.1 (2025-06-17):
 #     - 给arch_back补齐函数注释
 #     - 添加一个user目录下的排除项logs
@@ -1575,18 +1577,10 @@ run_backup() {
         latest_snapshot_dir=$(find "$BACKUP_TARGET_DIR_UNCOMPRESSED" -mindepth 1 -maxdepth 1 -type d ! -name "$CURRENT_TIMESTAMP" -printf "%T@ %p\n" | sort -nr | head -n 1 | cut -d' ' -f2-)
 
         if [[ -n "$latest_snapshot_dir" && -d "$latest_snapshot_dir" ]]; then
-            # rsync's --link-dest path should be relative to the destination directory's *parent*
-            # Destination is $BACKUP_TARGET_DIR_UNCOMPRESSED/$CURRENT_TIMESTAMP/
-            # So, --link-dest=../<latest_snapshot_basename>
-            local relative_link_dest="../$(basename "$latest_snapshot_dir")"
-            # Verify the path that --link-dest will resolve to actually exists
-            if [[ -d "${BACKUP_TARGET_DIR_UNCOMPRESSED}/$(basename "$latest_snapshot_dir")" ]]; then
-                link_dest_option="--link-dest=${relative_link_dest}"
-                log_msg INFO "找到上一个快照: '$(basename "$latest_snapshot_dir")'。将使用 --link-dest='$relative_link_dest' 进行增量备份。"
-            else
-                log_msg WARN "找到的上一个快照目录 '$(basename "$latest_snapshot_dir")' (应位于 '$BACKUP_TARGET_DIR_UNCOMPRESSED/') 似乎不再存在或路径解析不正确。本次将作为新的完整备份基线。"
-                link_dest_option=""
-            fi
+            # $latest_snapshot_dir 是上一个快照的绝对路径
+            # 例如 /mnt/arch_backups/auto_backup_systems/snapshots/20250615_172348
+            link_dest_option="--link-dest=${latest_snapshot_dir}"
+            log_msg INFO "找到上一个快照: '$(basename "$latest_snapshot_dir")' (路径: ${latest_snapshot_dir})。将使用绝对路径 --link-dest 进行增量备份。"
         else
             log_msg INFO "未找到上一个有效快照。本次将作为新的完整备份基线。"
             link_dest_option=""
