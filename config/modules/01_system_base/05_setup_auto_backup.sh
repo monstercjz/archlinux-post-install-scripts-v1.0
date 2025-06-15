@@ -327,6 +327,7 @@ main() {
     if ! _confirm_action "是否要设置一个 cron 定时任务来自动运行备份脚本?" "y" "${COLOR_GREEN}"; then
         log_info "跳过创建 cron 任务。您可以稍后手动设置。"
         log_notice "要手动运行备份，请使用命令: sudo $TARGET_BACKUP_SCRIPT_PATH"
+        log_notice "要手动编辑任务，请使用命令: 'sudo EDITOR="nano" crontab -e' "
         return 0
     fi
 
@@ -380,14 +381,14 @@ main() {
                 log_success "Cron 作业已成功添加到 root 用户的 crontab。"
             else
                 log_error "添加到 root crontab 失败。请手动添加。"
-                log_notice "手动添加方法: 以 root 用户执行 'crontab -e'，然后粘贴以下行:"
+                log_notice "手动添加方法: 以 root 用户执行 'sudo EDITOR="nano" crontab -e'，然后粘贴以下行:"
                 log_summary "$cron_job_entry" "" "${COLOR_CYAN}"
             fi
         fi
         rm -f "$temp_crontab_file"
     else
         log_info "请手动将作业添加到 crontab。"
-        log_notice "对于 root 用户，执行 'sudo crontab -e' 并粘贴以下行:"
+        log_notice "对于 root 用户，执行 'sudo EDITOR="nano" crontab -e' 并粘贴以下行:"
         log_summary "$cron_job_entry" "" "${COLOR_CYAN}"
     fi
     log_success "步骤 4/4: Cron 定时任务设置引导完成。"
@@ -413,7 +414,8 @@ exit_script_code=$?
 if [ "$exit_script_code" -ne 0 ]; then
     # _current_script_entrypoint 可能未定义如果直接执行此文件且未通过引导块
     # 使用一个安全的回退
-    local script_basename
+    # 这里被我去除掉了一个local
+    script_basename
     script_basename=$(basename "${BASH_SOURCE[0]}")
     log_error "${script_basename} 执行失败，退出码: $exit_script_code"
 fi
