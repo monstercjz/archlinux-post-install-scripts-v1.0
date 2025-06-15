@@ -118,7 +118,7 @@ _configure_backup_settings_interactive() {
 
     # 1. 配置 CONF_BACKUP_ROOT_DIR
     local current_backup_root_dir
-    current_backup_root_dir=$(grep -Po '^CONF_BACKUP_ROOT_DIR="\K[^"]*' "$conf_file_path" || echo "/mnt/backup/archlinux_system") # 从文件读取或默认
+    current_backup_root_dir=$(grep -Po '^CONF_BACKUP_ROOT_DIR="\K[^"]*' "$conf_file_path" || echo "/mnt/arch_backups/auto_backup_systems") # 从文件读取或默认
     
     local new_backup_root_dir
     read -rp "$(echo -e "${COLOR_YELLOW}请输入备份文件存放的根目录 (当前: ${COLOR_CYAN}${current_backup_root_dir}${COLOR_YELLOW}): ${COLOR_RESET}")" new_backup_root_dir
