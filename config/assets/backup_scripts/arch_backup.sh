@@ -1210,6 +1210,305 @@ backup_custom_paths() {
 }
 
 ################################################################################
+# 备份系统当前的关键状态信息。
+# 包括：系统摘要、网络详情、存储详情、定时任务、Systemd单元、防火墙规则等。
+# 此函数是 arch_backup.sh 的一部分，应独立运行，不依赖外部框架。
+# Globals:
+#   CONF_BACKUP_SYSTEM_STATE_INFO (R) - 是否启用此备份类别 (来自 arch_backup.conf)。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED (R) - 未压缩备份的根目录。
+#   CURRENT_TIMESTAMP              (R) - 当前备份的时间戳。
+#   SCRIPT_VERSION                 (R) - 当前 arch_backup.sh 脚本的版本。
+#   LOADED_CONFIG_FILE             (R) - 加载的 arch_backup.conf 路径。
+#   EFFECTIVE_UID                  (R) - arch_backup.sh 脚本的有效用户ID。
+#   CONF_TARGET_USERNAME           (R) - 配置文件中指定的目标用户名 (用于用户级信息收集)。
+# Arguments:
+#   None
+# Returns:
+#   0 如果成功或跳过。
+#   如果主要信息收集步骤失败，可能会返回非0，但通常会记录警告并继续。
+################################################################################
+backup_system_state_info() {
+    # 检查是否启用了此备份类别
+    if [[ "${CONF_BACKUP_SYSTEM_STATE_INFO:-false}" != "true" ]]; then
+        log_msg INFO "[系统状态信息] 跳过备份 (CONF_BACKUP_SYSTEM_STATE_INFO 未启用或为 false)。"
+        return 0
+    fi
+
+    log_msg INFO "[系统状态信息] 开始收集系统关键状态信息..."
+    local state_dest_dir="${BACKUP_TARGET_DIR_UNCOMPRESSED}/${CURRENT_TIMESTAMP}/system_info/"
+    if ! mkdir -p "$state_dest_dir"; then
+        log_msg ERROR "[系统状态信息] 无法创建目标目录 '$state_dest_dir'。跳过此备份类别。"
+        return 1
+    fi
+
+    # 定义将要生成的聚合信息文件名
+    local summary_file="${state_dest_dir}/system_snapshot_summary.txt"
+    local network_file="${state_dest_dir}/network_details.txt"
+    local storage_file="${state_dest_dir}/storage_details.txt"
+    local cron_jobs_file="${state_dest_dir}/cron_jobs.txt"
+    local systemd_units_file="${state_dest_dir}/systemd_services_timers.txt"
+    local firewall_file="${state_dest_dir}/firewall_rules.txt"
+
+    # --- 1. 生成 system_snapshot_summary.txt (核心环境摘要) ---
+    log_msg DEBUG "[系统状态信息] 1/6 生成摘要文件: $summary_file"
+    # 使用大括号将多个命令的输出重定向到一个文件
+    {
+        echo "=== Arch Linux System Snapshot Summary ==="
+        echo "Backup Task Timestamp: ${CURRENT_TIMESTAMP}"
+        echo "Collection Timestamp:  $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "Backup Script Version: ${SCRIPT_VERSION:-N/A}"
+        if [[ -n "${LOADED_CONFIG_FILE:-}" ]]; then
+            echo "Backup Config File:    $LOADED_CONFIG_FILE"
+        else
+            echo "Backup Config File:    Using default settings or not found"
+        fi
+        echo "----------------------------------------"
+
+        echo ">>> Kernel & Operating System <<<"
+        uname -a || echo "Error: uname -a failed"
+        echo ""
+        if [ -f /etc/os-release ]; then cat /etc/os-release; else echo "Warning: /etc/os-release not found"; fi
+        echo "----------------------------------------"
+
+        echo ">>> Hostname & Uptime <<<"
+        hostnamectl status --static 2>/dev/null || hostname || echo "Error: hostnamectl/hostname failed"
+        uptime || echo "Error: uptime failed"
+        echo "----------------------------------------"
+
+        echo ">>> CPU & Memory Overview <<<"
+        lscpu | grep -E 'Model name|Architecture|CPU\(s\)|Thread\(s) per core|Core\(s) per socket' || echo "Warning: lscpu partial info or command failed"
+        echo ""
+        free -h | grep -E '^Mem:|^Swap:' || echo "Warning: free command failed"
+        echo "----------------------------------------"
+
+        echo ">>> Key Disk Usage (df -hT) <<<"
+        df -hT / /home /boot /var /tmp 2>/dev/null || df -hT
+        echo "----------------------------------------"
+
+        echo ">>> Primary Network IPv4/IPv6 Addresses <<<"
+        ip -4 addr show scope global up | awk '/inet / {print "  " $NF ": " $2}' | sed 's/\/.*//' || echo "  IPv4: No primary global UP interfaces found or ip command failed"
+        ip -6 addr show scope global up | awk '/inet6 / {print "  " $NF ": " $2}' | sed 's/\/.*//' || echo "  IPv6: No primary global UP interfaces found or ip command failed"
+        echo "----------------------------------------"
+        echo "=== End of System Snapshot Summary ==="
+    } > "$summary_file" 2>"${state_dest_dir}/.summary_err.log" # Redirect stderr for this block
+    if [[ -s "${state_dest_dir}/.summary_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成摘要文件 '$summary_file' 时发生错误，详情见 .summary_err.log"
+    fi
+    rm -f "${state_dest_dir}/.summary_err.log"
+
+
+    # --- 2. 生成 network_details.txt (网络详细配置) ---
+    log_msg DEBUG "[系统状态信息] 2/6 生成网络详情文件: $network_file"
+    {
+        echo "=== Network Configuration Details ==="
+        echo "Collection Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "----------------------------------------"
+        echo ">>> IP Addresses (ip addr show) <<<"
+        ip addr show || echo "Error: ip addr show failed"
+        echo "----------------------------------------"
+        echo ">>> Routing Table (ip route show) <<<"
+        ip route show || echo "Error: ip route show failed"
+        echo "----------------------------------------"
+        echo ">>> ARP/Neighbor Cache (ip neigh show) <<<"
+        ip neigh show || echo "Error: ip neigh show failed"
+        echo "----------------------------------------"
+        echo ">>> DNS Resolvers (/etc/resolv.conf) <<<"
+        if [ -f /etc/resolv.conf ]; then cat /etc/resolv.conf; else echo "File /etc/resolv.conf not found"; fi
+        echo "----------------------------------------"
+        if command -v resolvectl &>/dev/null; then
+            echo ">>> systemd-resolved Status (resolvectl status) <<<"
+            resolvectl status || echo "Error: resolvectl status failed"
+            echo "----------------------------------------"
+        fi
+        echo ">>> Listening Ports (ss -tulnp or netstat -tulnp) <<<"
+        if command -v ss &>/dev/null; then
+            ss -tulnp || echo "Error: ss -tulnp failed"
+        elif command -v netstat &>/dev/null; then
+            log_msg DEBUG "[系统状态信息] ss未找到，尝试netstat获取监听端口。"
+            netstat -tulnp || echo "Error: netstat -tulnp failed"
+        else
+            echo "Warning: Neither ss nor netstat command found to list listening ports."
+        fi
+        echo "----------------------------------------"
+        echo "=== End of Network Details ==="
+    } > "$network_file" 2>"${state_dest_dir}/.network_err.log"
+    if [[ -s "${state_dest_dir}/.network_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成网络详情文件 '$network_file' 时发生错误，详情见 .network_err.log"
+    fi
+     rm -f "${state_dest_dir}/.network_err.log"
+
+
+    # --- 3. 生成 storage_details.txt (存储详细配置) ---
+    log_msg DEBUG "[系统状态信息] 3/6 生成存储详情文件: $storage_file"
+    {
+        echo "=== Storage Configuration Details ==="
+        echo "Collection Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "----------------------------------------"
+        echo ">>> Block Devices & Filesystems (lsblk -f) <<<"
+        lsblk -f || echo "Error: lsblk -f failed"
+        echo "----------------------------------------"
+        echo ">>> Disk Usage Full (df -hT) <<<"
+        df -hT || echo "Error: df -hT full failed"
+        echo "----------------------------------------"
+        echo ">>> Real Mount Points (findmnt --real ...) <<<"
+        findmnt --real -t nosquashfs,notmpfs,nodevtmpfs || echo "Warning: findmnt command failed or not available"
+        echo "----------------------------------------"
+        if command -v vgdisplay &>/dev/null && command -v lvdisplay &>/dev/null && command -v pvdisplay &>/dev/null; then
+            echo ">>> LVM Information <<<"
+            (echo "--- Volume Groups (vgdisplay) ---"; vgdisplay || echo "Error: vgdisplay failed"; echo "")
+            (echo "--- Logical Volumes (lvdisplay) ---"; lvdisplay || echo "Error: lvdisplay failed"; echo "")
+            (echo "--- Physical Volumes (pvdisplay) ---"; pvdisplay || echo "Error: pvdisplay failed"; echo "")
+            echo "----------------------------------------"
+        fi
+        if [ -f /proc/mdstat ] && command -v mdadm &>/dev/null; then
+            echo ">>> Software RAID Status (/proc/mdstat) <<<"
+            cat /proc/mdstat || echo "Error: reading /proc/mdstat failed"
+            echo "----------------------------------------"
+        fi
+        echo "=== End of Storage Details ==="
+    } > "$storage_file" 2>"${state_dest_dir}/.storage_err.log"
+    if [[ -s "${state_dest_dir}/.storage_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成存储详情文件 '$storage_file' 时发生错误，详情见 .storage_err.log"
+    fi
+    rm -f "${state_dest_dir}/.storage_err.log"
+
+
+    # --- 4. 生成 cron_jobs.txt (定时任务) ---
+    log_msg DEBUG "[系统状态信息] 4/6 生成定时任务文件: $cron_jobs_file"
+    {
+        echo "=== Cron Job Listings ==="
+        echo "Collection Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "----------------------------------------"
+        echo ">>> Root User's Crontab (crontab -l) <<<"
+        # arch_backup.sh 通常以 root 运行，所以可以直接执行 crontab -l
+        if [[ "$EFFECTIVE_UID" -eq 0 ]]; then
+            crontab -l 2>/dev/null || echo "# No crontab found for root or error accessing it."
+        else
+            log_msg WARN "[系统状态信息] 脚本未以root权限运行，无法获取root用户的crontab。"
+            echo "# Skipped: Not run as root, cannot get root crontab."
+        fi
+        echo "----------------------------------------"
+
+        # 目标用户的 Crontab (如果 CONF_TARGET_USERNAME 已设置且有效，且脚本以root运行)
+        if [[ -n "${CONF_TARGET_USERNAME:-}" && "$CONF_TARGET_USERNAME" != "root" ]]; then
+            echo ">>> User '${CONF_TARGET_USERNAME}' Crontab (crontab -u ${CONF_TARGET_USERNAME} -l) <<<"
+            if [[ "$EFFECTIVE_UID" -eq 0 ]]; then # 只有 root 可以安全查看其他用户的 crontab
+                crontab -u "$CONF_TARGET_USERNAME" -l 2>/dev/null || echo "# No crontab found for user '${CONF_TARGET_USERNAME}' or error accessing it."
+            else
+                 log_msg WARN "[系统状态信息] 脚本未以root权限运行，无法获取用户 '${CONF_TARGET_USERNAME}' 的crontab。"
+                 echo "# Skipped: Not run as root, cannot get user '${CONF_TARGET_USERNAME}' crontab."
+            fi
+            echo "----------------------------------------"
+        fi
+        echo "=== End of Cron Job Listings ==="
+    } > "$cron_jobs_file" 2>"${state_dest_dir}/.cron_err.log"
+    if [[ -s "${state_dest_dir}/.cron_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成定时任务文件 '$cron_jobs_file' 时发生错误，详情见 .cron_err.log"
+    fi
+    rm -f "${state_dest_dir}/.cron_err.log"
+
+
+    # --- 5. 生成 systemd_services_timers.txt (Systemd 单元和定时器) ---
+    log_msg DEBUG "[系统状态信息] 5/6 生成Systemd单元和定时器文件: $systemd_units_file"
+    {
+        echo "=== Systemd Unit Files & Timers ==="
+        echo "Collection Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "----------------------------------------"
+        echo ">>> System-wide Enabled Unit Files (systemctl list-unit-files --state=enabled) <<<"
+        systemctl list-unit-files --state=enabled --type=service,socket,target,timer --no-pager || echo "Error: systemctl list-unit-files --state=enabled failed"
+        echo "----------------------------------------"
+        echo ">>> System-wide All Timers (systemctl list-timers --all) <<<"
+        systemctl list-timers --all --no-pager || echo "Error: systemctl list-timers --all failed"
+        echo "----------------------------------------"
+
+        # 目标用户的 Systemd Enabled Unit Files (如果 CONF_TARGET_USERNAME 已设置且有效，且脚本以root运行)
+        if [[ -n "${CONF_TARGET_USERNAME:-}" && "$CONF_TARGET_USERNAME" != "root" ]]; then
+                echo ">>> User '${CONF_TARGET_USERNAME}' Enabled Unit Files (systemctl --user list-unit-files --state=enabled) <<<"
+                if [[ "$EFFECTIVE_UID" -eq 0 ]]; then # 确保当前是 root
+                    log_msg DEBUG "[系统状态信息] 尝试获取用户 '${CONF_TARGET_USERNAME}' 的 systemd --user enabled units via systemctl --machine"
+
+                    # 使用您测试成功的方法，并明确指定目标用户名
+                    systemctl --machine="${CONF_TARGET_USERNAME}@.host" \
+                        --user list-unit-files --state=enabled \
+                        --type=service,socket,target,timer --no-pager 2>/dev/null \
+                    || echo "# Failed to get user '${CONF_TARGET_USERNAME}' systemd enabled units using --machine. User session might not be active or other issues."
+                else
+                    log_msg WARN "[系统状态信息] 脚本未以root权限运行，无法获取用户 '${CONF_TARGET_USERNAME}' 的systemd --user units。"
+                    echo "# Skipped: Not run as root, cannot get user '${CONF_TARGET_USERNAME}' systemd --user units."
+                fi
+                echo "----------------------------------------"
+            fi
+        echo "=== End of Systemd Unit Files & Timers ==="
+    } > "$systemd_units_file" 2>"${state_dest_dir}/.systemd_err.log"
+    if [[ -s "${state_dest_dir}/.systemd_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成Systemd文件 '$systemd_units_file' 时发生错误，详情见 .systemd_err.log"
+    fi
+    rm -f "${state_dest_dir}/.systemd_err.log"
+
+
+    # --- 6. 生成 firewall_rules.txt (防火墙规则) ---
+    # arch_backup.sh 通常以 root 运行，所以可以直接执行这些命令
+    log_msg DEBUG "[系统状态信息] 6/6 生成防火墙规则文件: $firewall_file"
+    {
+        echo "=== Firewall Rules ==="
+        echo "Collection Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "----------------------------------------"
+        local firewall_tool_found=false
+        if command -v nft &>/dev/null; then
+            echo ">>> nftables Ruleset (nft list ruleset) <<<"
+            nft list ruleset || echo "Error: nft list ruleset failed"
+            firewall_tool_found=true
+        fi
+        if command -v iptables-save &>/dev/null; then
+            if $firewall_tool_found; then echo "----------------------------------------"; fi # Separator if multiple tools
+            echo ">>> iptables Rules (iptables-save) <<<"
+            iptables-save || echo "Error: iptables-save failed"
+            firewall_tool_found=true
+            if command -v ip6tables-save &>/dev/null; then
+                echo ""
+                echo ">>> ip6tables Rules (ip6tables-save) <<<"
+                ip6tables-save || echo "Error: ip6tables-save failed"
+            fi
+        fi
+        if command -v ufw &>/dev/null && systemctl is-active --quiet ufw 2>/dev/null; then
+            if $firewall_tool_found; then echo "----------------------------------------"; fi
+            echo ">>> UFW Status (ufw status numbered) <<<"
+            ufw status numbered || echo "Error: ufw status numbered failed"
+            firewall_tool_found=true
+        fi
+        if command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld 2>/dev/null; then
+            if $firewall_tool_found; then echo "----------------------------------------"; fi
+            echo ">>> firewalld Configuration (firewall-cmd --list-all-zones) <<<"
+            firewall-cmd --list-all-zones || echo "Error: firewall-cmd --list-all-zones failed"
+            firewall_tool_found=true
+        fi
+
+        if ! $firewall_tool_found; then
+            echo "No common active firewall management tool (nft, iptables, ufw, firewalld) found or rule export failed."
+        fi
+        echo "----------------------------------------"
+        echo "=== End of Firewall Rules ==="
+    } > "$firewall_file" 2>"${state_dest_dir}/.firewall_err.log"
+    if [[ -s "${state_dest_dir}/.firewall_err.log" ]]; then
+        log_msg WARN "[系统状态信息] 生成防火墙规则文件 '$firewall_file' 时发生错误，详情见 .firewall_err.log"
+    fi
+    rm -f "${state_dest_dir}/.firewall_err.log"
+
+    # --- 生成此目录的清单文件 ---
+    # _generate_manifest 是 arch_backup.sh 内部的函数
+    if type -t _generate_manifest &>/dev/null; then
+        if ! _generate_manifest "$state_dest_dir" "MANIFEST_system_info.txt"; then
+            log_msg WARN "[系统状态信息] 为 '$state_dest_dir' 生成清单文件失败。"
+        fi
+    else
+        log_msg WARN "[系统状态信息] _generate_manifest 函数未找到，无法为 system_info 生成清单。"
+    fi
+
+    log_msg INFO "[系统状态信息] 系统关键状态信息收集完成，存放于 '$state_dest_dir'"
+    return 0
+}
+
+################################################################################
 # 压缩指定的未压缩备份目录，并在成功和校验后选择性删除原目录。
 # Globals:
 #   BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES (R) - 压缩归档的存放目录。
@@ -1596,6 +1895,7 @@ run_backup() {
     [[ "$CONF_BACKUP_PACKAGES" == "true" ]] && backup_tasks+=("backup_packages")
     [[ "$CONF_BACKUP_LOGS" == "true" ]] && backup_tasks+=("backup_logs")
     [[ "$CONF_BACKUP_CUSTOM_PATHS" == "true" ]] && backup_tasks+=("backup_custom_paths \"$link_dest_option\"")
+    [[ "$CONF_BACKUP_SYSTEM_STATE_INFO" == "true" ]] && backup_tasks+=("backup_system_state_info") # 新增
 
     if [[ ${#backup_tasks[@]} -eq 0 ]]; then
         log_msg WARN "没有启用的备份类别。备份流程中止。"
