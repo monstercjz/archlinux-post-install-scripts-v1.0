@@ -89,10 +89,11 @@ declare -A SYSTEM_BASE_MENU_ENTRIES=(
     [2]="三方镜像配置 (添加中文社区软件源及秘钥)|action:core_modules:01_system_base/02_add_archlinuxcn_repo.sh"
     [3]="网络信息配置(修改网络信息)|action:core_modules:01_system_base/03_setup_network.sh"
     [4]="PACMAN HOOKS (自动备份安装软件列表)|action:core_modules:01_system_base/04_setup_pacman_hooks.sh"
-    [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
+    [5]="Arch_Bcakup (添加自动备份定时人物)|action:core_modules:01_system_base/05_setup_auto_backup.sh"
+    [6]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
-    [6]="XXXX(from another module dir)|action:extra_modules:my_extra_tool.sh"
+    [7]="XXXX(from another module dir)|action:extra_modules:my_extra_tool.sh"
     # 请确保 'modules-another/my_extra_tool.sh' 文件存在，以便此选项能正常工作
 )
 
