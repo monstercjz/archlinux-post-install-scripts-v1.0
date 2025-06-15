@@ -806,6 +806,8 @@ CONF_USER_HOME_INCLUDE=(
 )
 # 从用户家目录备份中排除的模式列表 (rsync 排除模式)。
 CONF_USER_HOME_EXCLUDE=(
+    "Code/"
+    "microsoft-edge/"
     "*/.cache/*"
     "*/Cache/*"          # Firefox, Chrome etc.
     "*/[Tt]rash/*"
