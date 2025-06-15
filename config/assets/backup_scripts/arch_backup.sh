@@ -530,6 +530,7 @@ CONF_BACKUP_USER_DATA="true"      # 用户家目录数据 (由 CONF_TARGET_USERN
 CONF_BACKUP_PACKAGES="true"       # 已安装软件包列表
 CONF_BACKUP_LOGS="true"           # 系统日志 (/var/log, journalctl)
 CONF_BACKUP_CUSTOM_PATHS="true"   # 用户自定义路径
+CONF_BACKUP_SYSTEM_STATE_INFO="true"
 
 # === 用户数据配置 (仅当 CONF_BACKUP_USER_DATA="true") ===
 # 用户家目录下需要备份的项目列表 (空格分隔的数组)。路径相对于用户家目录。
@@ -1264,23 +1265,128 @@ backup_system_state_info() {
         fi
         echo "----------------------------------------"
 
-        echo ">>> Kernel & Operating System <<<"
-        uname -a || echo "Error: uname -a failed"
-        echo ""
-        if [ -f /etc/os-release ]; then cat /etc/os-release; else echo "Warning: /etc/os-release not found"; fi
+                # ... (接在 Backup Script Version 和 Config File 之后)
+        echo "----------------------------------------"
+        echo ">>> System Overview <<<"
+
+        # OS
+        local os_name os_arch
+        os_name=$(grep -Po '^NAME="\K[^"]*' /etc/os-release 2>/dev/null || echo "Unknown OS")
+        os_arch=$(uname -m)
+        echo "OS:               ${os_name} ${os_arch}"
+
+        # Host
+        local host_name product_name
+        host_name=$(hostnamectl status --static 2>/dev/null || hostname)
+        # 尝试从 dmidecode 获取更详细的 Host/Product Name，如果失败则用 hostname
+        if [[ "$EFFECTIVE_UID" -eq 0 ]] && command -v dmidecode &>/dev/null; then
+            product_name=$(dmidecode -s system-product-name 2>/dev/null | sed 's/^[ \t]*//;s/[ \t]*$//')
+            if [[ -n "$product_name" && "$product_name" != "None" && "$product_name" != "To Be Filled By O.E.M." ]]; then
+                echo "Host:             ${product_name} (Hostname: ${host_name})"
+            else
+                echo "Host:             ${host_name}"
+            fi
+        else
+            echo "Host:             ${host_name}"
+        fi
+
+        # Kernel
+        echo "Kernel:           $(uname -s) $(uname -r)" # uname -s 显示内核名称 (Linux)
+
+        # Uptime
+        # uptime -p 提供更易读的格式，如果可用
+        if command -v uptime &>/dev/null && uptime -p &>/dev/null; then
+            echo "Uptime:           $(uptime -p | sed 's/^up //')"
+        else
+            echo "Uptime:           $(uptime | awk -F'( |,|:)+' '{if ($7=="min") print $6" "$7; else if ($7~/day/) print $6" "$7" "$8" "$9; else print $6" "$7" "$8}')" # 简化的 uptime 解析
+        fi
+        echo "" # 加个空行与下面的包信息分开
+
+        # Packages (Pacman count)
+        if command -v pacman &>/dev/null; then
+            echo "Packages:         $(pacman -Q | wc -l) (pacman)"
+        else
+            echo "Packages:         Pacman not found"
+        fi
+
+        # Shell (当前脚本执行的 shell，或默认用户 shell)
+        # $SHELL 通常是当前用户的登录 shell
+        # basename "$0" 或 $BASH (如果用bash) 是脚本解释器
+        # 为了获取 CONF_TARGET_USERNAME 的默认shell:
+        local target_shell="N/A"
+        if [[ -n "${CONF_TARGET_USERNAME:-}" ]]; then
+            target_shell=$(getent passwd "${CONF_TARGET_USERNAME}" | cut -d: -f7 | xargs -r basename 2>/dev/null || echo "N/A")
+            local shell_version_cmd
+            if [[ "$target_shell" != "N/A" ]] && command -v "$target_shell" &>/dev/null; then
+                case "$target_shell" in
+                    bash) shell_version_cmd="bash --version | head -n1 | awk '{print \$4}' | sed 's/(.*//'" ;;
+                    zsh)  shell_version_cmd="zsh --version | awk '{print \$2}'" ;;
+                    fish) shell_version_cmd="fish --version | awk '{print \$3}'" ;;
+                    *)    shell_version_cmd="" ;; # 其他shell版本获取方式可能不同
+                esac
+                if [[ -n "$shell_version_cmd" ]]; then
+                    local shell_ver
+                    shell_ver=$(eval "$shell_version_cmd" 2>/dev/null || echo "")
+                    target_shell="${target_shell}${shell_ver:+" $shell_ver"}" # 如果有版本号则添加
+                fi
+            fi
+            echo "Target User Shell: ${target_shell} (User: ${CONF_TARGET_USERNAME})"
+        else
+            echo "Shell:            $(basename "${SHELL:-N/A}") (Current login shell)"
+        fi
+
+
+        # DE (Desktop Environment) & WM (Window Manager)
+        # XDG_CURRENT_DESKTOP 可能包含多个值，用冒号分隔，取第一个
+        local de_raw="${XDG_CURRENT_DESKTOP:-N/A}"
+        local de="${de_raw%%:*}" # 取第一个
+        echo "DE:               ${de}"
+
+        # WM - 获取 WM 比较复杂，不同的DE有不同的方式，没有一个通用简单命令
+        # 对于 Xfce，通常是 xfwm4
+        # 对于 cron 环境，这些 X11 相关的变量通常不存在
+        local wm="N/A"
+        if [[ "$de" == "XFCE" ]]; then # XDG_CURRENT_DESKTOP 对 XFCE 通常是 XFCE
+            wm="Xfwm4" # 这是一个合理的猜测
+            if [[ -n "${XDG_SESSION_TYPE:-}" ]]; then
+                wm="${wm} (${XDG_SESSION_TYPE})"
+            fi
+        elif [[ -n "${XDG_SESSION_DESKTOP:-}" && "$XDG_SESSION_DESKTOP" != "$de" ]]; then # 有些情况 WM 单独设置
+             wm="$XDG_SESSION_DESKTOP"
+        elif [[ -n "${GDMSESSION:-}" && "$GDMSESSION" != "$de" ]]; then # GNOME 用的
+             wm="$GDMSESSION"
+        fi
+        # 如果是 cron 环境，上述变量可能为空
+        if [[ "$wm" == "N/A" ]] && [[ -n "${DESKTOP_SESSION:-}" ]]; then # 另一个可能的变量
+            wm="$DESKTOP_SESSION"
+        fi
+        echo "WM:               ${wm}"
+
+
+        # Terminal (在 cron 环境下这个信息意义不大，通常 $TERM 是 dumb)
+        echo "Terminal:         ${TERM:-N/A} (Execution context)"
+
+        # Locale
+        echo "Locale:           ${LANG:-N/A}"
         echo "----------------------------------------"
 
-        echo ">>> Hostname & Uptime <<<"
-        hostnamectl status --static 2>/dev/null || hostname || echo "Error: hostnamectl/hostname failed"
-        uptime || echo "Error: uptime failed"
+        # >>> Kernel & Operating System <<< 这部分可以移到 System Overview 之后或者省略，因为上面已经有了 OS 和 Kernel
+        # 如果还想保留 /etc/os-release 的部分信息（ID, BUILD_ID）可以这样做：
+        echo ">>> OS Details (from /etc/os-release) <<<"
+        if [ -f /etc/os-release ]; then
+            grep -E '^ID=|^BUILD_ID=|^PRETTY_NAME=' /etc/os-release || cat /etc/os-release # 回退到完整输出
+        else
+            echo "Warning: /etc/os-release not found"
+        fi
         echo "----------------------------------------"
 
-                echo ">>> CPU & Memory Overview <<<"
+        # >>> Hostname & Uptime <<< 也被上面的 Host 和 Uptime 覆盖了
+
+        # >>> CPU & Memory Overview <<< (保持您之前的良好格式)
+        echo ">>> CPU & Memory Overview <<<"
         local lscpu_output
-        # 在子shell中执行，临时设置LANG和LC_ALL为C，以确保英文输出
         lscpu_output=$( (export LANG=C LC_ALL=C; lscpu) 2>&1 )
         if [[ $? -eq 0 ]]; then
-            # 对英文输出进行 grep
             echo "$lscpu_output" | grep -E 'Model name|Architecture|CPU\(s\)|Thread\(s) per core|Core\(s) per socket'
             if [[ $? -ne 0 ]]; then
                 echo "Warning: lscpu output (in English) did not contain expected keywords. Full lscpu output was:"
@@ -1291,34 +1397,39 @@ backup_system_state_info() {
             echo "$lscpu_output"
         fi
         echo ""
-
         local free_output
-        # 同样，为 free 命令也设置 LANG 和 LC_ALL
         free_output=$( (export LANG=C LC_ALL=C; free -h) 2>&1 )
         if [[ $? -eq 0 ]]; then
-            # 对英文输出进行 grep
-            echo "$free_output" | grep -E '^Mem:|^Swap:'
-            if [[ $? -ne 0 ]]; then
-                echo "Warning: free -h output (in English) did not contain expected keywords. Full free -h output was:"
+            # 加上 Swap disabled/enabled 的判断
+            echo "$free_output" | grep -E '^Mem:'
+            if echo "$free_output" | grep -q '^Swap:[[:space:]]*0B'; then
+                echo "Swap:             Disabled"
+            else
+                echo "$free_output" | grep -E '^Swap:'
+            fi
+            if [[ $? -ne 0 && ! $(echo "$free_output" | grep -q '^Swap:[[:space:]]*0B') ]]; then # 如果grep Swap失败且不是因为0B
+                echo "Warning: free -h output (in English) did not contain expected keywords for Swap. Full free -h output was:"
                 echo "$free_output"
             fi
         else
             echo "Error: free -h command failed. Output/Error was:"
             echo "$free_output"
         fi
-        echo ""
         echo "----------------------------------------"
 
+        # >>> Key Disk Usage (df -hT) <<< (保持不变，它很好)
         echo ">>> Key Disk Usage (df -hT) <<<"
         df -hT / /home /boot /var /tmp 2>/dev/null || df -hT
         echo "----------------------------------------"
 
+        # >>> Primary Network IPv4/IPv6 Addresses <<< (保持不变，它很好)
         echo ">>> Primary Network IPv4/IPv6 Addresses <<<"
         ip -4 addr show scope global up | awk '/inet / {print "  " $NF ": " $2}' | sed 's/\/.*//' || echo "  IPv4: No primary global UP interfaces found or ip command failed"
         ip -6 addr show scope global up | awk '/inet6 / {print "  " $NF ": " $2}' | sed 's/\/.*//' || echo "  IPv6: No primary global UP interfaces found or ip command failed"
         echo "----------------------------------------"
         echo "=== End of System Snapshot Summary ==="
-    } > "$summary_file" 2>"${state_dest_dir}/.summary_err.log" # Redirect stderr for this block
+    } > "$summary_file" 2>"${state_dest_dir}/.summary_err.log"
+    # ... (错误日志处理和 rm -f 不变)
     if [[ -s "${state_dest_dir}/.summary_err.log" ]]; then
         log_msg WARN "[系统状态信息] 生成摘要文件 '$summary_file' 时发生错误，详情见 .summary_err.log"
     fi
@@ -1449,6 +1560,7 @@ backup_system_state_info() {
         systemctl list-timers --all --no-pager || echo "Error: systemctl list-timers --all failed"
         echo "----------------------------------------"
 
+        #sudo systemctl --machine=$USER@.host --user list-unit-files --state=enabled
         log_msg DEBUG "[系统状态信息] 尝试获取用户 '${CONF_TARGET_USERNAME}' 的 systemd --user enabled units via systemctl --machine"
         # 目标用户的 Systemd Enabled Unit Files (如果 CONF_TARGET_USERNAME 已设置且有效，且脚本以root运行)
         if [[ -n "${CONF_TARGET_USERNAME:-}" && "$CONF_TARGET_USERNAME" != "root" ]]; then
