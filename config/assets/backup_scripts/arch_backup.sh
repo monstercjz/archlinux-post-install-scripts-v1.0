@@ -62,7 +62,7 @@ SCRIPT_VERSION="1.3.0_zh_enhancements"
 SCRIPT_NAME=$(basename "$0")
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SCRIPT_PID=$$
-SESSION_TIMESTAMP=$(date '+%Y%m%d_%H%M%S') # 用于日志文件名等
+SESSION_TIMESTAMP=$(date '+%Y%m%d_%H%M%S') # 旧的用于日志文件名，现在使用GLOBAL_RUN_TIMESTAMP
 
 # === 全局变量 (默认值, 会被配置文件覆盖) ===
 CONF_BACKUP_ROOT_DIR=""
@@ -238,7 +238,7 @@ log_msg() {
 # Globals:
 #   CONF_LOG_FILE (R/W)      - 从配置中读取的日志基础路径或目录。
 #   CONF_LOG_TIMESTAMPED (R) - 是否启用时间戳日志。
-#   SESSION_TIMESTAMP (R)    - 当前会话的时间戳。
+#   GLOBAL_RUN_TIMESTAMP (R)    - 当前会话的时间戳。
 #   SCRIPT_NAME (R)          - 脚本名称，用于生成日志文件名。
 #   ACTUAL_LOG_FILE (W)      - 设置实际使用的日志文件完整路径。
 #   EFFECTIVE_UID (R)
@@ -902,6 +902,9 @@ CONF_PROMPT_FOR_CONFIRMATION="false"
 
 # 备份目标路径上要求的最小剩余磁盘空间百分比。
 CONF_MIN_FREE_DISK_SPACE_PERCENT="10"
+# 是否启用钩子
+CONF_HOOKS_ENABLE="true"
+CONF_HOOKS_BASE_DIR="/etc/arch_backup_hooks/hooks.d"
 EOF
 }
 
@@ -1073,6 +1076,101 @@ check_disk_space() {
         log_msg INFO "路径 '$path_to_check' 磁盘空间检查通过。可用: ${free_space_percent}% (要求: ${required_percent}% 剩余)。"
     fi
 }
+
+# (将其放在 arch_backup.sh 的辅助函数区域)
+
+################################################################################
+# _run_hooks - 执行指定事件类型的所有钩子脚本。
+#
+# Globals (R):
+#   CONF_HOOKS_ENABLE             - 是否启用钩子。
+#   CONF_HOOKS_BASE_DIR           - 钩子脚本的根目录。
+#   CURRENT_TIMESTAMP             - 当前备份的时间戳 (作为参数传递给钩子)。
+#   BACKUP_TARGET_DIR_UNCOMPRESSED - 当前未压缩备份的路径 (作为参数传递给钩子)。
+#   ACTUAL_LOG_FILE               - 当前脚本的日志文件路径 (作为参数传递给钩子)。
+#   <other relevant global vars>  - 可以选择性地导出更多变量给钩子脚本。
+#
+# Arguments:
+#   $1 - (String) hook_event_name - 钩子事件的名称。这将决定在 CONF_HOOKS_BASE_DIR
+#                                   下查找哪个子目录中的脚本。
+#                                   例如: "pre-backup", "post-backup-success",
+#                                         "pre-task-system_config", "post-task-user_data-failure"
+#   $@ - (Optional, Strings) context_args - 传递给每个钩子脚本的额外参数。
+#                                           例如，对于任务相关的钩子，可以传递任务名。
+#                                           对于 post-backup 钩子，可以传递备份的最终状态。
+#
+# Returns:
+#   0 - 如果所有钩子成功执行或没有钩子执行。
+#   非0 - 如果有任何钩子脚本以非零状态退出 (根据策略，这可能不中止主流程)。
+#
+# Side effects:
+#   - 执行用户定义的脚本，这些脚本可能有任意副作用。
+#   - 输出日志信息。
+################################################################################
+_run_hooks() {
+    local hook_event_name="$1"
+    shift # 移除第一个参数，剩下的是 context_args
+
+    # 检查钩子功能是否启用
+    if [[ "${CONF_HOOKS_ENABLE:-false}" != "true" ]]; then
+        log_msg DEBUG "[Hooks] 钩子功能未启用 (CONF_HOOKS_ENABLE)。跳过 '$hook_event_name' 钩子。"
+        return 0
+    fi
+
+    # 确定钩子脚本所在的目录
+    # 假设钩子子目录直接以 event_name 命名，位于 CONF_HOOKS_BASE_DIR 之下
+    local hook_dir="${CONF_HOOKS_BASE_DIR%/}/${hook_event_name}" # %/ 移除末尾斜杠（如果存在）再添加
+
+    if [[ ! -d "$hook_dir" ]]; then
+        log_msg DEBUG "[Hooks] 未找到 '$hook_event_name' 的钩子目录: '$hook_dir'。无需执行钩子。"
+        return 0
+    fi
+
+    log_msg INFO "[Hooks] 开始执行 '$hook_event_name' 事件的钩子 (来自目录: '$hook_dir')..."
+    local overall_hook_status=0 # 用于记录是否有钩子失败
+
+    # 查找并按文件名顺序执行所有可执行文件
+    # 使用 find 和 sort 来处理文件名，并确保它们是可执行的常规文件
+    # -print0 和 read -d $'\0' 用于安全处理包含特殊字符的文件名
+    find "$hook_dir" -mindepth 1 -maxdepth 1 -type f -executable -print0 2>/dev/null | sort -z | while IFS= read -r -d $'\0' hook_script_path; do
+        local hook_script_name
+        hook_script_name=$(basename "$hook_script_path")
+        log_msg INFO "[Hooks]   执行钩子脚本: '$hook_script_name' (事件: $hook_event_name)"
+
+        # 准备传递给钩子脚本的环境变量 (除了参数，环境变量也是一种上下文传递方式)
+        # 这些变量在钩子脚本中可以直接使用
+        export HOOK_EVENT_NAME="$hook_event_name"
+        export HOOK_CURRENT_TIMESTAMP="$CURRENT_TIMESTAMP"
+        export HOOK_BACKUP_SNAPSHOT_DIR="$BACKUP_TARGET_DIR_UNCOMPRESSED" # 包含当前时间戳的快照根
+        export HOOK_CURRENT_SNAPSHOT_PATH="${BACKUP_TARGET_DIR_UNCOMPRESSED%/}/${CURRENT_TIMESTAMP}" # 本次备份的快照路径
+        export HOOK_MAIN_LOG_FILE="$ACTUAL_LOG_FILE" # 主备份脚本的日志文件
+        # 可以根据需要添加更多如 HOOK_BACKUP_ROOT_DIR, HOOK_ARCHIVE_DIR 等
+
+        # 执行钩子脚本，并传递额外的上下文参数 (如果 _run_hooks 被调用时提供了)
+        if "$hook_script_path" "$@"; then # "$@" 会将 _run_hooks 接收到的 context_args 传递过去
+            log_msg DEBUG "[Hooks]     钩子脚本 '$hook_script_name' 执行成功。"
+        else
+            local hook_exit_code=$?
+            log_msg WARN "[Hooks]     钩子脚本 '$hook_script_name' 执行失败 (退出码: $hook_exit_code)。"
+            overall_hook_status=1 # 标记至少有一个钩子失败了
+            # 根据策略，决定是否因为钩子失败而中止主备份流程
+            # 默认情况下，我们只记录警告，不中止主流程，除非钩子内部自己 exit 1
+            # 如果需要中止，可以在这里 `return $hook_exit_code` 或 `exit $hook_exit_code`
+        fi
+
+        # 清理为本次钩子导出的环境变量 (可选，如果担心污染后续钩子或主脚本环境)
+        # unset HOOK_EVENT_NAME HOOK_CURRENT_TIMESTAMP ... (通常不需要，因为子进程环境独立)
+    done
+
+    if [[ "$overall_hook_status" -eq 0 ]]; then
+        log_msg INFO "[Hooks] '$hook_event_name' 事件的所有钩子执行完毕 (或无钩子执行)。"
+    else
+        log_msg WARN "[Hooks] '$hook_event_name' 事件的部分钩子执行失败。请检查日志。"
+    fi
+
+    return "$overall_hook_status"
+}
+
 
 ################################################################################
 # 为实际命令 (rsync, tar) 构建资源控制前缀 (nice, ionice)。
@@ -2476,11 +2574,10 @@ main() {
     echo "--- $(date '+%Y-%m-%d %H:%M:%S') - $SCRIPT_NAME (PID: $SCRIPT_PID, Version: $SCRIPT_VERSION) - 脚本启动 (日志暂存: $ACTUAL_LOG_FILE) ---" >> "$ACTUAL_LOG_FILE"
 
     if [[ "$EFFECTIVE_UID" -ne 0 ]]; then
-        # This message goes to stderr and the provisional log if log_msg isn't fully ready
         echo "警告: 为了完整备份系统文件 (如 /etc) 和正确处理权限，建议使用 'sudo $0' 运行此脚本。" >&2
-        log_msg WARN "脚本未使用 root 权限运行。系统级备份功能将受限。" # log_msg will use ACTUAL_LOG_FILE
+        log_msg WARN "脚本未使用 root 权限运行。系统级备份功能将受限。"
     fi
-    if [[ "$EFFECTIVE_UID" -eq 0 && -z "$SUDO_USER" ]]; then
+    if [[ "$EFFECTIVE_UID" -eq 0 && -z "$SUDO_USER" ]]; then # SUDO_USER 已在脚本顶部处理过未定义的情况
         log_msg WARN "脚本正以 root 用户直接运行 (非通过sudo)。如果计划进行特定用户数据备份，请在配置文件中设置 CONF_TARGET_USERNAME。"
     fi
 
@@ -2488,7 +2585,8 @@ main() {
 
     log_msg INFO "脚本版本: $SCRIPT_VERSION"
     log_msg INFO "脚本执行路径: $SCRIPT_DIR/$SCRIPT_NAME"
-    log_msg INFO "脚本PID: $SCRIPT_PID / 会话时间戳: $SESSION_TIMESTAMP"
+    # SESSION_TIMESTAMP 变量在您的脚本中似乎没有被使用，GLOBAL_RUN_TIMESTAMP 是主要的
+    log_msg INFO "脚本PID: $SCRIPT_PID / 全局运行时间戳: $GLOBAL_RUN_TIMESTAMP"
     log_msg INFO "实际日志文件: $ACTUAL_LOG_FILE"
     log_msg INFO "执行用户 (有效): $EFFECTIVE_USER (UID: $EFFECTIVE_UID)"
     # if [[ -n "$SUDO_USER" ]]; then
@@ -2520,20 +2618,43 @@ main() {
     # check_dependencies will add nice/ionice if configured
     check_dependencies "${required_system_deps[@]}"
 
-    local main_process_status=0
-    if run_backup; then
-        log_msg INFO "$SCRIPT_NAME 执行成功完成。"
+    # --- 可以在这里添加一个非常早期的 "pre-execution" 钩子，如果需要的话 ---
+    # _run_hooks "pre-execution" "$GLOBAL_RUN_TIMESTAMP"
+    # --------------------------------------------------------------------
+
+    local main_backup_exit_code=0 # 用于记录 run_backup 的最终状态
+    if run_backup; then # run_backup 内部会调用 cleanup_backups (清理备份快照和归档)
+        log_msg INFO "$SCRIPT_NAME 备份流程成功完成。"
     else
-        main_process_status=1 # Mark that an error occurred in the main process
-        log_msg ERROR "$SCRIPT_NAME 执行过程中遇到一个或多个错误。"
+        main_backup_exit_code=$? # 获取 run_backup 的失败退出码
+        # 如果 run_backup 返回非0，它内部应该已经记录了ERROR
+        # log_msg ERROR "$SCRIPT_NAME 备份流程遇到一个或多个错误 (退出码: $main_backup_exit_code)。" # 这句可能重复
+        #-------------------
+        #main_process_status=1 # Mark that an error occurred in the main process
+        #log_msg ERROR "$SCRIPT_NAME 执行过程中遇到一个或多个错误。"
         # trap ERR will have already logged details
     fi
 
-    cleanup_old_logs # Clean up timestamped logs if enabled
+    # 清理 arch_backup.sh 自身的日志文件
+    cleanup_old_logs
 
-    if [[ "$main_process_status" -ne 0 ]]; then
-        echo "--- $(date '+%Y-%m-%d %H:%M:%S') - $SCRIPT_NAME (PID: $SCRIPT_PID) - 脚本因错误退出 ---" >> "$ACTUAL_LOG_FILE"
-        exit 1
+    # --- 最终钩子：在所有操作（包括备份、备份清理、自身日志清理）完成后执行 ---
+    # 这个钩子点非常适合执行与本次备份运行完全解耦的收尾任务，比如清理外部日志。
+    log_msg INFO "[Hooks] 所有主要操作已完成，准备执行 'finalization' 钩子..."
+    # 传递主备份流程的退出状态给钩子，以便钩子脚本可以根据情况决定是否执行某些操作
+    export HOOK_MAIN_BACKUP_EXIT_CODE="$main_backup_exit_code" # 导出给钩子脚本
+    _run_hooks "finalization" "$GLOBAL_RUN_TIMESTAMP" "$main_backup_exit_code"
+    local finalization_hook_status=$?
+    if [[ "$finalization_hook_status" -ne 0 ]]; then
+        log_msg WARN "[Hooks] 'finalization' 钩子执行时报告了失败。"
+        # 这里的钩子失败通常不应改变脚本的最终退出状态
+    fi
+    unset HOOK_MAIN_BACKUP_EXIT_CODE # 清理环境变量
+    # --------------------------------------------------------------------------
+
+    if [[ "$main_backup_exit_code" -ne 0 ]]; then
+        echo "--- $(date '+%Y-%m-%d %H:%M:%S') - $SCRIPT_NAME (PID: $SCRIPT_PID) - 脚本因错误退出 (主备份流程错误码: $main_backup_exit_code) ---" >> "$ACTUAL_LOG_FILE"
+        exit "$main_backup_exit_code"
     fi
 
     echo "--- $(date '+%Y-%m-%d %H:%M:%S') - $SCRIPT_NAME (PID: $SCRIPT_PID) - 脚本正常结束 ---" >> "$ACTUAL_LOG_FILE"
