@@ -45,7 +45,7 @@ readonly SOURCE_BACKUP_CONF_NAME="arch_backup.conf"
 
 # 目标系统安装路径 (推荐)
 readonly TARGET_SCRIPT_DIR="/usr/local/sbin" # 脚本通常放在 sbin 给 root 用
-readonly TARGET_CONF_DIR="/etc"
+readonly TARGET_CONF_DIR="/etc/arch_backup"
 
 # 完整路径
 readonly SOURCE_BACKUP_SCRIPT_PATH="${ASSETS_DIR}/${SOURCE_BACKUP_SCRIPTS_DIR_RELATIVE}/${SOURCE_BACKUP_SCRIPT_NAME}"

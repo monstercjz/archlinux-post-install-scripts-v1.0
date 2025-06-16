@@ -27,7 +27,9 @@
 #   1. ${HOME}/.config/arch_backup.conf (如果CONF_TARGET_USERNAME未指定，则为执行sudo的用户的HOME)
 #   2. /etc/arch_backup.conf
 #   可以在配置文件中设置 CONF_TARGET_USERNAME 来指定要备份家目录的特定用户。
-#   如果未找到配置文件，脚本会提议生成一个默认配置文件。
+#   如果未找到配置文件，脚本会提议生成一个默认配置文件，位置在/home/usr/.config/。
+#   3. 钩子脚本位于默认：
+#   /etc/arch_back/这个目录下面
 # -----------------------------------------------------------------------------
 # 更新日志 (Changelog):
 #   1.3.2 (2025-06-17):
@@ -99,7 +101,7 @@ CONF_RETENTION_COMPRESSED_COUNT="10"
 CONF_RETENTION_COMPRESSED_DAYS="90"
 
 CONF_PARALLEL_JOBS="1"
-CONF_PROMPT_FOR_CONFIRMATION="true"
+CONF_PROMPT_FOR_CONFIRMATION="false"
 CONF_MIN_FREE_DISK_SPACE_PERCENT="10"
 
 CONF_USE_NICE="false"
@@ -904,7 +906,7 @@ CONF_PROMPT_FOR_CONFIRMATION="false"
 CONF_MIN_FREE_DISK_SPACE_PERCENT="10"
 # 是否启用钩子
 CONF_HOOKS_ENABLE="true"
-CONF_HOOKS_BASE_DIR="/etc/arch_backup_hooks/hooks.d"
+CONF_HOOKS_BASE_DIR="/etc/arch_backup/hooks.d"
 EOF
 }
 
@@ -942,6 +944,7 @@ load_config() {
     config_file_search_paths+=(
         "/etc/$(basename "$SCRIPT_NAME" .sh).conf"
         "/etc/arch_backup.conf"
+        "/etc/arch_backup/arch_backup.conf"
         "${SCRIPT_DIR}/$(basename "$SCRIPT_NAME" .sh).conf" # 同目录下
     )
     # 去重并移除空路径
@@ -978,7 +981,7 @@ load_config() {
         local default_config_path_to_propose="${user_config_dir_candidate}/$(basename "$SCRIPT_NAME" .sh).conf"
 
         # 确保在提议前 confirm_action 能工作 (至少输出到终端)
-        # CONF_PROMPT_FOR_CONFIRMATION 此时仍为默认值 "true"
+        # CONF_PROMPT_FOR_CONFIRMATION 此时仍为默认值 "false"
         if confirm_action "未找到配置文件。是否在 '$default_config_path_to_propose' 创建一个默认配置文件？"; then
             mkdir -p "$user_config_dir_candidate" || { log_msg ERROR "无法创建目录 '$user_config_dir_candidate' 以存放默认配置。"; exit 1; }
             if _generate_default_config_content > "$default_config_path_to_propose"; then
