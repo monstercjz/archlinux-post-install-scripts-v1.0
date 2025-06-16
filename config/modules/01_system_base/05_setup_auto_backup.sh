@@ -47,10 +47,11 @@ readonly SOURCE_BACKUP_CONF_NAME="arch_backup.conf"
 readonly TARGET_SCRIPT_DIR="/usr/local/sbin" # 脚本通常放在 sbin 给 root 用
 readonly TARGET_CONF_DIR="/etc/arch_backup"
 
-# 完整路径
+# 完整源路径
 readonly SOURCE_BACKUP_SCRIPT_PATH="${ASSETS_DIR}/${SOURCE_BACKUP_SCRIPTS_DIR_RELATIVE}/${SOURCE_BACKUP_SCRIPT_NAME}"
 readonly SOURCE_BACKUP_CONF_PATH="${ASSETS_DIR}/${SOURCE_BACKUP_SCRIPTS_DIR_RELATIVE}/${SOURCE_BACKUP_CONF_NAME}"
 
+# 完整目标路径
 readonly TARGET_BACKUP_SCRIPT_PATH="${TARGET_SCRIPT_DIR}/${SOURCE_BACKUP_SCRIPT_NAME}"
 readonly TARGET_BACKUP_CONF_PATH="${TARGET_CONF_DIR}/${SOURCE_BACKUP_CONF_NAME}" # 系统级配置
 
@@ -60,6 +61,15 @@ CRON_SERVICE_NAME="cronie"
 # 用于存储 _get_cron_schedule 函数结果的变量
 _SELECTED_CRON_SCHEDULE_RESULT=""
 
+# 定义预设的钩子脚本及其目标事件目录
+# 格式： "源文件在default_hooks下的相对路径=目标事件子目录名[|描述][|默认启用y/n]"
+declare -A PRESET_HOOK_SCRIPTS=(
+    ["finalization/99_cleanup_cron_exec_log.sh"]="finalization|清理Cron执行日志|y"
+    # ["pre-backup/10_example_pre_hook.sh"]="pre-backup|示例：备份前执行的操作|n" # 默认不启用
+    # ["post-backup-success/80_example_post_hook.sh"]="post-backup-success|示例：备份成功后执行的操作|n"
+)
+readonly PRESET_HOOKS_SOURCE_BASE_DIR="${ASSETS_DIR}/${SOURCE_BACKUP_SCRIPTS_DIR_RELATIVE}/default_hooks"
+
 # ==============================================================================
 # 辅助函数
 # ==============================================================================
@@ -68,12 +78,146 @@ _SELECTED_CRON_SCHEDULE_RESULT=""
 # _prompt_return_to_continue()
 # @description 显示一个提示消息，并等待用户按 Enter 键继续。
 # @param $1 (string, optional) - 要显示的提示文本。默认为 "按 Enter 键继续..."。
-_prompt_return_to_continue() {
-    local message="${1:-按 Enter 键继续...}" # 如果未提供参数，使用默认消息
-    read -rp "$(echo -e "${COLOR_YELLOW}${message}${COLOR_RESET}")"
-    echo # 输出一个空行
-}
+# _prompt_return_to_continue() {
+#     local message="${1:-按 Enter 键继续...}" # 如果未提供参数，使用默认消息
+#     read -rp "$(echo -e "${COLOR_YELLOW}${message}${COLOR_RESET}")"
+#     echo # 输出一个空行
+# }
 
+# --- 步骤 2.6/4 (新增): 部署预设的钩子脚本 ---
+# --- 步骤 2.6/4 (或者您调整后的步骤编号): 部署预设的钩子脚本 ---
+# @description: 检查并部署项目中定义的预设钩子脚本到目标钩子目录。
+#               如果目标位置已存在同名脚本，会提示用户是否覆盖。
+#               如果用户同意覆盖，会使用框架的备份函数备份现有脚本。
+# @param $1 (string) target_hooks_base_dir - 已创建的目标钩子根目录的绝对路径 
+#                                           (例如 /etc/arch_backup/hooks.d)。
+# @returns: 0 总是返回0，部署过程中的失败会记录为错误/警告，但不中止主设置流程，
+#             除非是关键的目录创建失败。
+# @depends: 全局数组 PRESET_HOOK_SCRIPTS, 全局变量 PRESET_HOOKS_SOURCE_BASE_DIR,
+#           项目框架函数: log_*, _confirm_action, _create_directory_if_not_exists, create_backup_and_cleanup
+_deploy_preset_hooks() {
+    local target_hooks_base_dir="$1" 
+
+    # 验证传入的钩子基础目录是否存在
+    if [ ! -d "$target_hooks_base_dir" ]; then
+        log_warn "[Preset Hooks] 目标钩子根目录 '$target_hooks_base_dir' 不存在。无法部署预设钩子。"
+        return 1 # 可以考虑返回错误码，让调用者决定是否中止
+    fi
+
+    # 检查是否有预设钩子被定义
+    if [ ${#PRESET_HOOK_SCRIPTS[@]} -eq 0 ]; then
+        log_info "[Preset Hooks] 没有在脚本中定义预设的钩子脚本。无需部署。"
+        return 0
+    fi
+
+    log_info "步骤 4/6: 检查并部署预设的钩子脚本到 '$target_hooks_base_dir'..." # 调整步骤编号
+
+    # 遍历 PRESET_HOOK_SCRIPTS 关联数组中定义的所有预设钩子
+    for preset_hook_source_relative_path in "${!PRESET_HOOK_SCRIPTS[@]}"; do
+        local hook_details="${PRESET_HOOK_SCRIPTS[$preset_hook_source_relative_path]}"
+        local target_event_subdir hook_description default_enable_char
+        
+        # 解析钩子详情: "源文件相对路径=目标事件子目录|描述|默认启用y/n"
+        IFS='|' read -r target_event_subdir hook_description default_enable_char <<< "$hook_details"
+        default_enable_char="${default_enable_char:-y}" # 如果未提供，默认为启用 (y)
+
+        # 构建源脚本和目标脚本的完整路径
+        local source_script_full_path="${PRESET_HOOKS_SOURCE_BASE_DIR%/}/${preset_hook_source_relative_path}"
+        local target_script_dir="${target_hooks_base_dir%/}/${target_event_subdir}" # 确保目标事件子目录路径正确
+        local target_script_filename
+        target_script_filename=$(basename "$source_script_full_path")
+        local target_script_full_path="${target_script_dir}/${target_script_filename}"
+
+        log_debug "[Preset Hooks] 正在处理预设钩子..."
+        log_debug "[Preset Hooks]   源脚本: '$source_script_full_path'"
+        log_debug "[Preset Hooks]   目标位置: '$target_script_full_path'"
+        log_debug "[Preset Hooks]   描述: '${hook_description:- (无描述)}'"
+        log_debug "[Preset Hooks]   默认部署提示: '$default_enable_char'"
+
+        # 检查源预设钩子脚本是否存在
+        if [ ! -f "$source_script_full_path" ]; then
+            log_warn "[Preset Hooks] 源预设钩子脚本 '$source_script_full_path' 未找到。跳过此钩子。"
+            continue # 处理下一个预设钩子
+        fi
+
+        # 确保目标事件子目录存在 (通常应由之前的步骤创建，这里作为保险)
+        if ! _create_directory_if_not_exists "$target_script_dir"; then
+            log_warn "[Preset Hooks] 目标事件钩子目录 '$target_script_dir' 无法创建。跳过部署 '$target_script_filename'。"
+            continue # 处理下一个预设钩子
+        fi
+
+        # 根据 default_enable_char 决定是否需要询问用户，或直接进行下一步判断
+        local should_proceed_to_deploy=false
+        if [[ "$default_enable_char" == "y" ]]; then
+            should_proceed_to_deploy=true # 对于默认启用的，先假设要部署（后续会检查是否已存在）
+        else
+            # 对于默认不启用的，明确询问用户是否部署
+            if _confirm_action "是否部署可选的预设钩子脚本 '${hook_description:-$target_script_filename}' 到 '$target_script_dir'?" "n" "${COLOR_GREEN}"; then
+                should_proceed_to_deploy=true
+            fi
+        fi
+
+        if ! $should_proceed_to_deploy; then
+            log_info "[Preset Hooks] 跳过部署预设钩子脚本 '$target_script_filename' (基于默认设置或用户选择)。"
+            echo # 添加空行以分隔不同钩子的处理日志
+            continue # 处理下一个预设钩子
+        fi
+
+        # --- 核心逻辑：检查目标文件是否存在，并处理备份和覆盖 ---
+        local copy_new_file_flag=true # 标志最终是否执行复制操作
+        if [ -f "$target_script_full_path" ]; then
+            log_warn "[Preset Hooks] 目标钩子脚本 '$target_script_full_path' 已存在。"
+            if _confirm_action "是否用项目提供的版本覆盖现有的 '$target_script_filename'? (提示: 现有文件将被使用框架的备份函数进行备份)" "n" "${COLOR_RED}"; then
+                # 用户同意覆盖，使用 create_backup_and_cleanup 备份现有文件
+                # 定义用于存放此钩子脚本备份的子目录名 (相对于 GLOBAL_BACKUP_ROOT)
+                local hook_script_backup_subdir="deployed_hooks_backup/${target_event_subdir}"
+                # 定义为此类钩子脚本保留的最大备份数量
+                local max_hook_script_backups_to_keep=3 
+
+                log_info "[Preset Hooks] 使用框架备份函数备份现有文件 '$target_script_full_path'..."
+                log_debug "[Preset Hooks]   备份将被存入 '${GLOBAL_BACKUP_ROOT%/}/$hook_script_backup_subdir' (最多保留 $max_hook_script_backups_to_keep 个版本)"
+                
+                # 调用 utils.sh 中的备份函数
+                if create_backup_and_cleanup "$target_script_full_path" "$hook_script_backup_subdir" "$max_hook_script_backups_to_keep"; then
+                    log_success "[Preset Hooks] 现有文件 '$target_script_filename' 已成功通过框架函数备份。"
+                    # 因为 create_backup_and_cleanup 通常不删除源文件，我们需要手动删除它以便后续 cp 覆盖
+                    log_info "[Preset Hooks] 准备删除旧的 '$target_script_full_path' 以便复制新版本..."
+                    if ! rm -f "$target_script_full_path"; then
+                        log_error "[Preset Hooks] 备份了现有文件，但删除原文件 '$target_script_full_path' 失败！将不会覆盖。"
+                        copy_new_file_flag=false # 不要继续复制
+                    fi
+                else
+                    log_error "[Preset Hooks] 使用框架备份函数备份现有文件 '$target_script_full_path' 失败！将不会覆盖。"
+                    copy_new_file_flag=false # 不要继续复制
+                fi
+            else
+                log_info "[Preset Hooks] 用户选择保留现有的 '$target_script_filename'。不进行覆盖。"
+                copy_new_file_flag=false # 不要继续复制
+            fi
+        fi # 结束 if [ -f "$target_script_full_path" ]
+        # --- 结束检查和备份逻辑 ---
+
+        if $copy_new_file_flag; then
+            # 执行部署 (复制新文件)
+            log_info "[Preset Hooks] 部署预设钩子脚本 '$target_script_filename' 到 '$target_script_dir'..."
+            # 使用 cp -v 来显示复制的详细信息
+            if cp -v "$source_script_full_path" "$target_script_dir/"; then
+                # 复制成功后，设置执行权限
+                if chmod +x "$target_script_full_path"; then
+                    log_success "[Preset Hooks] 预设钩子脚本 '$target_script_filename' 已成功部署并设置为可执行。"
+                else
+                    log_warn "[Preset Hooks] 预设钩子脚本 '$target_script_filename' 已复制，但设置执行权限失败。"
+                fi
+            else
+                log_error "[Preset Hooks] 复制预设钩子脚本 '$target_script_filename' 到 '$target_script_dir/' 失败。"
+            fi
+        fi
+        echo # 添加空行以分隔不同钩子的处理日志，使输出更清晰
+    done # 结束 for preset_hook_source_relative_path 循环
+
+    log_success "步骤 4/6: 预设钩子脚本部署流程已完成。" # 调整步骤编号
+    return 0
+}
 
 # 检查 cron 服务是否安装并运行
 _check_cron_service() {
@@ -267,10 +411,10 @@ main() {
         log_error "Cron 服务未能正确配置或启动。无法继续设置定时备份。"
         return 1
     fi
-    log_success "步骤 1/4: Cron 服务检查通过。"
+    log_success "步骤 1/6: Cron 服务检查通过。"
 
     # --- 步骤 2: 复制备份脚本和配置文件 ---
-    log_info "步骤 2/4: 复制备份脚本和配置文件到系统目录..."
+    log_info "步骤 2/6: 复制备份脚本和配置文件到系统目录..."
     if [ ! -f "$SOURCE_BACKUP_SCRIPT_PATH" ]; then
         log_fatal "源备份脚本 '$SOURCE_BACKUP_SCRIPT_PATH' 未找到！请确保它位于项目的 assets 目录。"
     fi
@@ -281,22 +425,67 @@ main() {
     _create_directory_if_not_exists "$TARGET_SCRIPT_DIR"
     _create_directory_if_not_exists "$TARGET_CONF_DIR"
 
-    log_info "复制 '$SOURCE_BACKUP_SCRIPT_NAME' 到 '$TARGET_SCRIPT_DIR'..."
-    if cp -v "$SOURCE_BACKUP_SCRIPT_PATH" "$TARGET_SCRIPT_DIR/"; then
-        chmod +x "$TARGET_BACKUP_SCRIPT_PATH"
-        log_success "备份脚本已复制并设置为可执行: $TARGET_BACKUP_SCRIPT_PATH"
+    local BACKUP_SCRIPTS_PATH="arch_backup_scripts"
+    local SCRIPTS_BACKUP_DIR="${GLOBAL_BACKUP_ROOT}/${BACKUP_SCRIPTS_PATH}"
+    if [ -f "$TARGET_BACKUP_SCRIPT_PATH" ]; then
+        log_warn "目标脚本文件 '$TARGET_BACKUP_SCRIPT_PATH' 已存在。"
+        if ! _confirm_action "是否覆盖现有的脚本文件 (您的旧脚本将丢失)?" "n" "${COLOR_RED}"; then
+            log_info "保留现有脚本文件。将基于现有脚本文件进行后续执行。"
+        else
+            
+            # create_backup_and_cleanup "$TARGET_BACKUP_CONF_PATH" "$BACKUP_DIR"
+            if create_backup_and_cleanup "$TARGET_BACKUP_SCRIPT_PATH" "$BACKUP_SCRIPTS_PATH"; then
+                # 备份成功，函数可以成功返回
+                log_info "成功备份 '$TARGET_BACKUP_SCRIPT_PATH' 到 '$SCRIPTS_BACKUP_DIR' 目录..."
+            else
+                log_warn "没能备份 '$TARGET_BACKUP_SCRIPT_PATH' 到 '$SCRIPTS_BACKUP_DIR' 目录..."
+            fi
+            log_info "开始复制 '$SOURCE_BACKUP_SCRIPT_PATH' 到 '$TARGET_BACKUP_SCRIPT_PATH' (覆盖)..."
+            if cp -v "$SOURCE_BACKUP_SCRIPT_PATH" "$TARGET_SCRIPT_DIR/"; then
+                chmod +x "$TARGET_BACKUP_SCRIPT_PATH"
+                log_success "备份脚本已复制并设置为可执行: $TARGET_BACKUP_SCRIPT_PATH"
+            else
+                log_error "复制备份脚本失败。请检查权限。"
+                return 1
+            fi
+        fi
     else
-        log_error "复制备份脚本失败。请检查权限。"
-        return 1
+        log_info "复制 '$SOURCE_BACKUP_SCRIPT_NAME' 到 '$TARGET_SCRIPT_DIR'..."
+        if cp -v "$SOURCE_BACKUP_SCRIPT_PATH" "$TARGET_SCRIPT_DIR/"; then
+            chmod +x "$TARGET_BACKUP_SCRIPT_PATH"
+            log_success "备份脚本已复制并设置为可执行: $TARGET_BACKUP_SCRIPT_PATH"
+        else
+            log_error "复制备份脚本失败。请检查权限。"
+            return 1
+        fi
     fi
 
+    # log_info "复制 '$SOURCE_BACKUP_SCRIPT_NAME' 到 '$TARGET_SCRIPT_DIR'..."
+    # if cp -v "$SOURCE_BACKUP_SCRIPT_PATH" "$TARGET_SCRIPT_DIR/"; then
+    #     chmod +x "$TARGET_BACKUP_SCRIPT_PATH"
+    #     log_success "备份脚本已复制并设置为可执行: $TARGET_BACKUP_SCRIPT_PATH"
+    # else
+    #     log_error "复制备份脚本失败。请检查权限。"
+    #     return 1
+    # fi
+
     local effective_target_conf_path="$TARGET_BACKUP_CONF_PATH"
+    local BACKUP_DIR="arch_backup_conf"
+    local CONF_BACKUP_DIR="${GLOBAL_BACKUP_ROOT}/${BACKUP_DIR}"
     if [ -f "$TARGET_BACKUP_CONF_PATH" ]; then
         log_warn "目标配置文件 '$TARGET_BACKUP_CONF_PATH' 已存在。"
         if ! _confirm_action "是否覆盖现有的配置文件 (您的旧配置将丢失)?" "n" "${COLOR_RED}"; then
             log_info "保留现有配置文件。将基于现有配置文件进行后续修改。"
         else
-            log_info "复制 '$SOURCE_BACKUP_CONF_NAME' 到 '$TARGET_CONF_DIR' (覆盖)..."
+            
+            # create_backup_and_cleanup "$TARGET_BACKUP_CONF_PATH" "$BACKUP_DIR"
+            if create_backup_and_cleanup "$TARGET_BACKUP_CONF_PATH" "$BACKUP_DIR"; then
+                # 备份成功，函数可以成功返回
+                log_info "成功备份 '$TARGET_BACKUP_CONF_PATH' 到 '$CONF_BACKUP_DIR' 目录..."
+            else
+                log_warn "没能备份 '$TARGET_BACKUP_CONF_PATH' 到 '$CONF_BACKUP_DIR' 目录..."
+            fi
+            log_info "开始复制 '$SOURCE_BACKUP_CONF_PATH' 到 '$TARGET_BACKUP_CONF_PATH' (覆盖)..."
             if cp -vf "$SOURCE_BACKUP_CONF_PATH" "$TARGET_CONF_DIR/"; then
                 log_success "备份配置文件已复制: $TARGET_BACKUP_CONF_PATH"
             else
@@ -313,17 +502,86 @@ main() {
             return 1
         fi
     fi
-    log_success "步骤 2/4: 备份脚本和配置文件部署完成。"
+    log_success "步骤 2/6: 备份脚本和配置文件部署完成。"
 
-    # --- 步骤 3: 引导用户配置备份设置 ---
-    log_info "步骤 3/4: 配置备份脚本关键设置..."
+     # --- 步骤 2.5/4 (新编号): 准备钩子目录结构 ---
+    log_info "步骤 3/6: 准备钩子目录结构..."
+    
+    # effective_target_conf_path 应该是在步骤2中确定的最终配置文件路径
+    # 例如: local effective_target_conf_path="$TARGET_BACKUP_CONF_PATH"
+    # 确保这个变量在步骤2中被正确设置并在此处可用
+
+    local hooks_enabled_from_conf="false"
+    # 默认的钩子基础目录，应与 arch_backup.sh 中的默认值一致
+    local hooks_base_dir_from_conf="/etc/arch_backup/hooks.d" 
+
+    if [ -f "$effective_target_conf_path" ]; then
+        # 从已部署的配置文件中读取钩子相关的设置
+        hooks_enabled_from_conf=$(grep -Po '^CONF_HOOKS_ENABLE="\K[^"]*' "$effective_target_conf_path" 2>/dev/null || echo "false")
+        hooks_base_dir_from_conf=$(grep -Po '^CONF_HOOKS_BASE_DIR="\K[^"]*' "$effective_target_conf_path" 2>/dev/null || echo "/etc/arch_backup/hooks.d")
+        log_info "从 '$effective_target_conf_path' 读取到: CONF_HOOKS_ENABLE='$hooks_enabled_from_conf', CONF_HOOKS_BASE_DIR='$hooks_base_dir_from_conf'"
+    else
+        log_warn "配置文件 '$effective_target_conf_path' 未找到，无法读取钩子设置。将使用默认钩子基础目录 '$hooks_base_dir_from_conf' 并假设钩子未启用。"
+        # 这种情况下，可能不应该继续创建钩子目录，或者只创建基础目录但不提示启用
+    fi
+
+    # 无论配置文件中 CONF_HOOKS_ENABLE 的值如何，我们都可以创建基础目录结构，
+    # 以便用户后续如果想启用钩子，目录已经准备好了。
+    # 或者，可以做得更严格：只有当 hooks_enabled_from_conf 为 "true" 时才创建。
+    # 为了用户友好和后续使用的便利性，先创建好目录通常更好。
+    
+    log_info "将确保钩子基础目录 '$hooks_base_dir_from_conf' 存在。"
+    if ! _create_directory_if_not_exists "$hooks_base_dir_from_conf"; then # _create_directory_if_not_exists 来自 utils.sh
+        log_error "无法创建钩子根目录 '$hooks_base_dir_from_conf'。钩子功能可能无法使用。"
+        # 可以考虑这里是否需要 return 1，取决于钩子是否被视为核心功能的一部分
+    else
+        # 创建一些常见的事件子目录作为示例或预备
+        # 这些子目录名应与 arch_backup.sh 中 _run_hooks 函数期望的事件名一致
+        local common_event_subdirs=("pre-backup" "post-backup-success" "post-backup-failure" "finalization") 
+        # 如果有特定任务的钩子，也在此处添加，例如 "pre-task-system_config"
+        
+        for subdir in "${common_event_subdirs[@]}"; do
+            local event_dir_path="${hooks_base_dir_from_conf%/}/${subdir}" # 确保路径正确拼接
+            if ! _create_directory_if_not_exists "$event_dir_path"; then
+                log_warn "无法创建事件钩子子目录 '$event_dir_path'。"
+            else
+                # 可选：设置目录权限，例如 root:root 755
+                # sudo chown root:root "$event_dir_path" # 如果脚本以root运行，chown给自己是多余的，但可以确保
+                # sudo chmod 755 "$event_dir_path"
+                log_info "事件钩子子目录已创建/确认: $event_dir_path"
+            fi
+        done
+        log_success "钩子目录结构已在 '$hooks_base_dir_from_conf' 中准备就绪。"
+        
+        # 根据配置文件中的实际启用状态给出提示
+        if [[ "$hooks_enabled_from_conf" == "true" ]]; then
+            log_info "钩子功能已在 '${effective_target_conf_path}' 中启用。"
+            log_notice "您可以将可执行脚本放入 '${hooks_base_dir_from_conf}' 下相应的事件子目录中以激活它们。"
+        else
+            log_notice "提示: 钩子功能当前在 '${effective_target_conf_path}' 中为禁用状态 (CONF_HOOKS_ENABLE=\"${hooks_enabled_from_conf}\")."
+            log_notice "如需使用，请在配置文件中将其设置为 \"true\"，然后将脚本放入上述子目录。"
+        fi
+    fi
+    log_success "步骤 3/6: 钩子目录结构准备完成。"
+
+
+ # --- 步骤 4/6 (新增): 部署预设的钩子脚本 ---
+    # 只有当钩子目录实际存在时才尝试部署
+    if [[ -n "$hooks_base_dir_from_conf" && -d "$hooks_base_dir_from_conf" ]]; then
+        _deploy_preset_hooks "$hooks_base_dir_from_conf"
+    else
+        log_warn "钩子基础目录未正确设置或创建，跳过部署预设钩子脚本。"
+    fi
+    
+    # --- 步骤 5: 引导用户配置备份设置 ---
+    log_info "步骤 5/6: 配置备份脚本关键设置..."
     if ! _configure_backup_settings_interactive "$effective_target_conf_path"; then
         log_warn "备份配置引导未完全完成或被跳过。"
     fi
-    log_success "步骤 3/4: 备份脚本配置引导完成。"
+    log_success "步骤 5/6: 备份脚本配置引导完成。"
 
-    # --- 步骤 4: 创建 Cron 任务 ---
-    log_info "步骤 4/4: 创建 Cron 定时任务..."
+    # --- 步骤 6: 创建 Cron 任务 ---
+    log_info "步骤 6/6: 创建 Cron 定时任务..."
     if ! _confirm_action "是否要设置一个 cron 定时任务来自动运行备份脚本?" "y" "${COLOR_GREEN}"; then
         log_info "跳过创建 cron 任务。您可以稍后手动设置。"
         log_notice "要手动运行备份，请使用命令: sudo $TARGET_BACKUP_SCRIPT_PATH"
@@ -348,15 +606,61 @@ main() {
 
     local cron_schedule_string="$_SELECTED_CRON_SCHEDULE_RESULT" # 使用全局变量的结果
 
+    # 如果这个路径修改之后，应该同步修改99_cleanup_cron_exec_logs.sh中的清理路径
     local cron_log_dir="/var/log/arch_backups_logs/arch_system_backup_cron_logs"
     _create_directory_if_not_exists "$cron_log_dir"
-    local cron_output_log="${cron_log_dir}/cron_execution.log"
-    touch "$cron_output_log" && chmod 644 "$cron_output_log"
+    # ---修改单一日志文件模式，改为带时间戳的动态多文件日志----
+    # local cron_output_log="${cron_log_dir}/cron_execution.log"
+    # touch "$cron_output_log" && chmod 644 "$cron_output_log"
 
     local lock_file="/var/run/$(basename "$TARGET_BACKUP_SCRIPT_PATH").lock"
     # 确保cron命令中的路径是绝对的
     local cron_command_script_path="$TARGET_BACKUP_SCRIPT_PATH" 
-    local cron_command="flock -n ${lock_file} ${cron_command_script_path} >> ${cron_output_log} 2>&1"
+    # ---修改部分开始------
+    # local cron_command="flock -n ${lock_file} ${cron_command_script_path} >> ${cron_output_log} 2>&1"
+    # --- 修改 cron_command 以包含动态时间戳文件名 ---
+    # 我们需要在 cron 执行时动态获取时间戳。
+    # cron 环境中直接使用 date 命令是可靠的。
+    # 注意：cron 中的 '%' 字符有特殊含义，需要转义成 '\%'
+    #       或者将整个日期格式字符串用单引号括起来，避免 cron 解释。
+    # 使用单引号和反引号（或 $()）来嵌入 date 命令
+    local cron_command="flock -n ${lock_file} ${cron_command_script_path} >> \"${cron_log_dir}/cron_exec_$(date '+%Y%m%d_%H%M%S').log\" 2>&1"
+    # 或者，为了确保文件名中的特殊字符被正确处理，并避免 cron 对 % 的特殊解释：
+    # cron_command="flock -n ${lock_file} ${cron_command_script_path} >> \"${cron_log_dir}/cron_exec_\$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).log\" 2>&1"
+    # 上面这个版本更安全，对 % 进行了转义。
+
+    # 一个更简洁且安全的版本，将日期格式化部分用单引号括起来，避免 cron 解释 %
+    # 但在 bash -c "..." 内部，单引号和 $() 可能需要小心处理。
+    # 对于直接的 cron 条目，以下方式更常见且安全：
+    # The command string that will be put into crontab
+    # We need to escape '%' for crontab, or ensure the command passed to bash -c handles it.
+    # Since flock is the main command and redirection happens after, this should be fine.
+    # Let's use a subshell for the redirection part to ensure date is evaluated at runtime.
+    # This gets tricky because the whole command is one string for crontab.
+    
+    # 最简单且通常能工作的方式是让 date 命令在 cron 执行时被 shell 解释：
+    # cron 会将整个 command 传递给 sh (通常是 /bin/sh) 来执行。
+    # 所以 `date` 命令会在那时被评估。
+    # 为了安全，文件名中的 `$(date ...)` 部分最好用双引号内的命令替换。
+    # 关键是 cron 如何处理 %。在 cron 文件中，% 有特殊含义（表示换行，除非被转义为 \%）。
+    # 但我们这里是构建一个将要被 sh 执行的命令字符串。
+    
+    # 推荐的方式，确保 date 在执行时被评估，并且 % 被正确处理：
+    # cron_command="flock -n ${lock_file} ${cron_command_script_path} >> ${cron_log_dir}/cron_exec_\\`date +\\%Y\\%m\\%d_\\%H\\%M\\%S\\`.log 2>&1"
+    # 上述命令使用了反引号和对%的转义，这是比较传统的cron写法。
+
+    # 使用 $() 和对 % 的转义，更现代：
+    cron_command="flock -n ${lock_file} ${cron_command_script_path} >> \"${cron_log_dir}/cron_exec_\$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).log\" 2>&1"
+    # 解释：
+    # \$(...) : $ 被转义，所以 $(date...) 这部分会作为字符串传递给 cron，然后在 cron 执行命令时，
+    #           shell (通常是 sh) 会执行 date 命令。
+    # \\%   : % 被转义两次。一次是为了 bash 字符串（如果用双引号），一次是为了 cron。
+    #          如果整个 cron_command 字符串是用单引号构建的，则只需要转义一次 %。
+    #          鉴于我们是用双引号构建的，这里用 \\% 是比较安全的。
+    #          或者，如果 date 的格式字符串不包含特殊字符，可以直接用单引号：
+    # cron_command="flock -n ${lock_file} ${cron_command_script_path} >> \"${cron_log_dir}/cron_exec_\$(date '+%Y%m%d_%H%M%S').log\" 2>&1"
+    # 上面这个版本，date 的格式字符串用单引号包围，可以避免 % 的问题，推荐！
+    # ---修改结束
     local cron_job_entry="${cron_schedule_string} ${cron_command}"
 
     log_info "生成的 cron 作业条目为:"
@@ -373,7 +677,8 @@ main() {
         
         if grep -Fq "$cron_command" "$temp_crontab_file"; then # 使用 -F 进行固定字符串匹配
             log_warn "类似的 cron 作业似乎已存在于 root 的 crontab 中。跳过添加以避免重复。"
-            log_info "内容如下："
+            log_notice "手动修改方法: 以 root 用户执行 'sudo EDITOR="nano" crontab -e'，然后粘贴以下行:"
+            log_info "当前作业内容如下："
             grep -F "$cron_command" "$temp_crontab_file" | while IFS= read -r line; do log_info "  $line"; done
         else
             echo "$cron_job_entry" >> "$temp_crontab_file"
@@ -400,7 +705,7 @@ main() {
     log_summary "配置文件位置: ${effective_target_conf_path}"
     log_summary "Cron 作业计划: ${cron_schedule_string}" # 使用包含实际值的变量
     log_summary "备份脚本日志: (请查看 ${effective_target_conf_path} 中的 CONF_LOG_FILE 设置)"
-    log_summary "Cron 执行日志: ${cron_output_log} (如果配置了重定向)"
+    log_summary "Cron 执行日志: ${cron_log_dir}/目录下的日子文件 (如果配置了重定向)"
     log_summary "--------------------------------------------------------------------------------" "" "${COLOR_GREEN}"
     log_notice "您可以使用 'sudo crontab -l' 查看 root 用户的 cron 任务列表。"
     log_notice "如果您的 cron 服务配置为发送邮件，您可能会在备份执行后收到邮件通知。"

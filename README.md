@@ -50,6 +50,31 @@ archlinux-post-install-scripts-v1.0/
     │   └── 00_cleanup_and_finish.sh
     └── main_menu.sh
 ```
+## 涉及到的路径
+archlinux-post-install-scripts项目sh执行的日志：
+LOG_ROOT_RELATIVE_TO_BASE="arch_post_installation_logs"
+LOG_ROOT="/var/log/arch_backups_logs/${LOG_ROOT_RELATIVE_TO_BASE}"
+
+archlinux-post-install-scripts项目sh执行过程项目备份目录：
+GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE="manual_backups"
+GLOBAL_BACKUP_ROOT="/mnt/arch_backups/${GLOBAL_BACKUP_ROOT_RELATIVE_TO_BASE}"
+
+cron日志：
+cron_log_dir="/var/log/arch_backups_logs/arch_system_backup_cron_logs/"
+
+arch_back功能函数的根目录：
+CONF_BACKUP_ROOT_DIR="/mnt/arch_backups/auto_backup_systems"
+arch_back功能函数的日志目录：
+CONF_LOG_FILE="${CONF_BACKUP_ROOT_DIR}/backup_logs"
+arch_back功能函数的执行备份结果目录：
+BACKUP_TARGET_DIR_UNCOMPRESSED="${CONF_BACKUP_ROOT_DIR}/snapshots"
+BACKUP_TARGET_DIR_COMPRESSED_ARCHIVES="${CONF_BACKUP_ROOT_DIR}/archives"
+
+pacman日志及备份文件：
+save_dir="/mnt/arch_backups/hook_manual_install_packages/"
+BACKUP_DIR="/mnt/arch_backups/hook_pacman_history"
+LOG_FILE="/var/log/arch_backups_logs/hook_backup_pacman_info_logs/backup-pacman-info.log"
+
 ## 特点
 1.  **入口多样化：** 可以从run_setup.sh开始，也可以从main_menu.sh开始,也可以从2级菜单开始，甚至从最基本的功能模块开始。
 2.  **日志信息详尽：** 控制台带色彩输出，日志文件纯文字记录，输出信息中保留日志调用者信息，每个sh都有对应的日志文件。
