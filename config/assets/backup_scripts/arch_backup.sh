@@ -950,7 +950,7 @@ load_config() {
     # 去重并移除空路径
     config_file_paths=($(printf "%s\n" "${config_file_search_paths[@]}" | awk '!seen[$0]++' | grep .))
 
-
+    # 如果不想用/etc/arch_backup/目录下的配置，就在用户目录的.config目录下新建一个arch_backup.conf,找到这个之后就不会继续找了
     for cf_path in "${config_file_paths[@]}"; do
         if [[ -f "$cf_path" ]]; then
             log_msg INFO "找到配置文件: $cf_path"
