@@ -1,128 +1,114 @@
 #!/bin/bash
 
-# count_lib_function_calls.sh
-# Description: Counts the number of times functions defined in lib/ a
-#              directory are called in other .sh files within the project.
+# 脚本功能：统计 config/lib/*.sh 中定义的函数被项目中其他 .sh 文件调用的次数
 
-# 严格模式
-set -euo pipefail
+PROJECT_ROOT="."
+LIB_DIR="$PROJECT_ROOT/config/lib"
 
-# 项目根目录 (假设脚本在根目录运行)
-PROJECT_ROOT="." 
-LIB_DIR="${PROJECT_ROOT}/config/lib"
+declare -A func_def_files
+declare -A func_call_counts
 
-# 存储函数名及其调用次数的关联数组
-declare -A function_counts
+echo "正在扫描 $LIB_DIR 中的函数定义 ..."
 
-# --- 步骤 1: 获取 lib/ 目录下所有 .sh 文件中定义的函数名 ---
-echo "INFO: Gathering function definitions from ${LIB_DIR} ..."
-defined_functions=() # 初始化为空数组
-declare -A seen_functions_for_definition # 用于确保函数只被添加一次（基于函数名）
+# 1. 查找 config/lib/*.sh 文件中定义的所有函数
+while IFS= read -r lib_file; do
+    # echo "  正在处理库文件: $lib_file" # 可以取消注释以进行调试输出
 
-# 使用一个循环来处理 find 的输出，并在主 shell 中处理每个文件
-# find ... -print0 和 read -d $'\0' 用于安全处理可能包含特殊字符的文件名
-while IFS= read -r -d $'\0' lib_file_path; do
-    lib_filename=$(basename "$lib_file_path")
-    echo "  Processing lib file: $lib_filename"
-    
-    # 从每个 lib 文件中提取函数名
-    # 模式：匹配 "function_name () {" 或 "function function_name () {"
-    # sed：移除 "function " 前缀和 "() {..." 后缀，得到函数名
-    # grep -Ev '^_'：排除以 "_" 开头的函数名（通常视为内部/私有）
-    # || true：确保即使 grep 链没有输出（例如文件为空或所有函数都以下划线开头），
-    #          整个命令替换也不会因 set -e 或 pipefail 而中止脚本。
-    while IFS= read -r func_name; do
-        if [[ -n "$func_name" ]]; then # 确保 func_name 非空
-            # 使用关联数组检查函数是否已被定义，比遍历普通数组高效
-            if [[ -z "${seen_functions_for_definition[$func_name]}" ]]; then
-                defined_functions+=("$func_name")
-                function_counts["$func_name"]=0 # 初始化调用次数为0
-                seen_functions_for_definition["$func_name"]=1 # 标记此函数名已处理
-                echo "    Found unique function definition: $func_name"
+    mapfile -t extracted_func_names < <( \
+        grep -E '^\s*(function\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*\{' "$lib_file" | \
+        sed -E 's/^\s*(function\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*\{.*/\2/' \
+    )
+
+    for func_name_raw in "${extracted_func_names[@]}"; do
+        if [[ -n "$func_name_raw" ]]; then
+            func_name=$(echo "$func_name_raw" | tr -d '[:space:]')
+            if [[ -z "$func_name" ]]; then
+                continue
+            fi
+
+            # 只有在第一次遇到函数定义时才打印 "提取到的..."，避免重复
+            if [[ -z "${func_def_files[$func_name]}" ]]; then
+                echo "      提取到的潜在函数名: '$func_name' (来自 $lib_file)"
+                func_def_files["$func_name"]="$lib_file"
+                func_call_counts["$func_name"]=0
+            
+                # 如果需要，可以保留警告重复定义的逻辑，但对于仅用于统计的脚本，可以简化
+                # echo "      警告: 函数 '$func_name' 重复定义或已找到 (已在 ${func_def_files[$func_name]} 中定义, 又在 $lib_file 中匹配到). 将使用首次定义."
             fi
         fi
-    done < <(grep -E '^[a-zA-Z0-9_][a-zA-Z0-9_[:space:]]*\s*\(\s*\)\s*\{|^function\s+[a-zA-Z0-9_][a-zA-Z0-9_[:space:]]*\s*\(\s*\)\s*\{' "$lib_file_path" | \
-             sed -E 's/^[[:space:]]*function[[:space:]]+//; s/\s*\(\s*\)\s*\{.*//; s/[[:space:]]*$//' | \
-             grep -Ev '^_' || true)
+    done
 
-done < <(find "$LIB_DIR" -type f -name "*.sh" -print0 2>/dev/null) # 2>/dev/null 抑制 find 在 LIB_DIR 不存在时的错误
+    if [ ${#extracted_func_names[@]} -eq 0 ]; then
+         if ! grep -qE '^\s*(function\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*\{' "$lib_file"; then
+            # echo "    在 $lib_file 中未找到匹配函数定义模式的行." # 可以取消注释以进行调试输出
+            : # No-op, or a less verbose message if needed
+        fi
+    fi
 
-# 检查是否找到了任何函数定义
-if [ ${#defined_functions[@]} -eq 0 ]; then
-    echo "ERROR: No valid functions (or an error occurred during discovery) found in ${LIB_DIR}. Exiting."
+done < <(find "$LIB_DIR" -maxdepth 1 -name "*.sh" -type f)
+
+
+if [ ${#func_def_files[@]} -eq 0 ]; then
+    echo -e "\n在扫描 $LIB_DIR 后未找到任何函数定义. 脚本退出."
+    # ... (错误信息)
     exit 1
 fi
-echo "INFO: Total unique function definitions found in lib/: ${#defined_functions[@]}"
-# 可选的调试输出，查看所有找到的函数名：
-# echo "DEBUG: List of defined functions: ${defined_functions[*]}"
-echo "--------------------------------------------------"
 
+echo -e "\n共找到 ${#func_def_files[@]} 个唯一的函数进行追踪:"
+sorted_found_funcs=($(for func in "${!func_def_files[@]}"; do echo "$func"; done | sort))
+for func_name in "${sorted_found_funcs[@]}"; do
+    echo "  - $func_name (定义于 ${func_def_files[$func_name]})"
+done
 
-# --- 步骤 2 & 3: 遍历项目中所有其他 .sh 文件，并搜索函数调用 ---
-echo "INFO: Searching for function calls in other project .sh files..."
+echo -e "\n正在扫描项目中的 .sh 文件以统计函数调用次数..."
 
-# 查找所有 .sh 文件，排除 lib 目录自身，也排除本统计脚本
-# 使用 -print0 和 read -d $'\0' 保证文件名安全
-find "$PROJECT_ROOT" -type f -name "*.sh" \
-    ! -path "${LIB_DIR}/*" \
-    ! -name "$(basename "$0")" \
-    -print0 | \
-while IFS= read -r -d $'\0' target_file_path; do
-    target_filename=$(basename "$target_file_path")
-    # 移除 PROJECT_ROOT 前缀以获得相对路径，使输出更简洁
-    relative_target_path="${target_file_path#${PROJECT_ROOT}/}" 
-    echo "  Scanning file: $relative_target_path"
-    
-    for func_to_find in "${defined_functions[@]}"; do
-        # 搜索函数调用：
-        #   \b${func_to_find}\b : 匹配作为独立单词的函数名
-        #   grep -Ev "..."     : 排除掉函数定义和注释行中的匹配
-        #
-        # 这个 grep 链的目的是：
-        # 1. `grep -Eo "\b${func_to_find}\b"`: 找出所有作为独立单词出现的函数名。
-        # 2. `grep -Ev "^\s*#.*\b${func_to_find}\b"`: 排除掉那些在注释行中找到的。
-        # 3. `grep -Ev "^\s*function\s+${func_to_find}\b|^\s*${func_to_find}\s*\(\s*\)\s*\{"`: 排除掉函数定义本身。
-        #
-        # `|| true` 确保即使某个 grep 步骤没有匹配（例如，文件不包含该函数），
-        # `wc -l` 也能正确得到 0，并且不会因 set -e 或 pipefail 中止。
-        count=$( (grep -Eo "\b${func_to_find}\b" "$target_file_path" || true) | \
-                 (grep -Ev "^\s*#.*\b${func_to_find}\b" || true) | \
-                 (grep -Ev "^\s*function\s+${func_to_find}\b|^\s*${func_to_find}\s*\(\s*\)\s*\{" || true) | \
-                 wc -l)
-        
-        # 如果 wc -l 意外失败或输出非数字，进行简单校验
-        if ! [[ "$count" =~ ^[0-9]+$ ]]; then
-            echo "    WARN: Could not determine count for '$func_to_find' in '$target_filename'. Assuming 0."
-            count=0
+mapfile -t all_sh_files < <(find "$PROJECT_ROOT" -name "*.sh" -type f)
+
+for func_name in "${!func_def_files[@]}"; do
+    for script_to_scan in "${all_sh_files[@]}"; do
+        if [[ "$script_to_scan" == "${func_def_files[$func_name]}" ]]; then
+            continue
         fi
 
-        if [[ "$count" -gt 0 ]]; then
-            # log_msg DEBUG "    Found '$func_to_find' $count time(s) in $target_filename" # 可选调试
-            function_counts["$func_to_find"]=$((function_counts["$func_to_find"] + count))
+        call_count_in_file=$(cat "$script_to_scan" | \
+            grep -v '^[[:space:]]*#' | \
+            grep -vP "^\s*(?:function\s+)?\Q$func_name\E\s*\(\s*\)\s*\{" | \
+            grep -oP "\b\Q$func_name\E\b" | \
+            wc -l)
+
+        if [[ "$call_count_in_file" -gt 0 ]]; then
+            func_call_counts["$func_name"]=$(( ${func_call_counts["$func_name"]} + call_count_in_file ))
         fi
     done
 done
 
-echo "--------------------------------------------------"
-echo "INFO: Function call counts from lib/ directory (sorted by call count desc):"
-printf "%-45s %s\n" "Function Name" "Call Count"
-printf "%-45s %s\n" "---------------------------------------------" "----------"
-
-# 按调用次数排序输出 (降序)
-# 将关联数组转换为可排序的格式 (每行: count func_name)
-sorted_output_lines=()
-for func_name_out in "${!function_counts[@]}"; do
-    sorted_output_lines+=("${function_counts[$func_name_out]} $func_name_out")
+echo -e "\n--- 函数调用次数统计 (从高到低排序) ---"
+# 4. 准备数据并排序输出
+# 创建一个临时数组或直接通过管道处理
+# 格式: 调用次数 函数名 (定义于 文件)
+# 然后使用 sort -rn 进行数值反向排序
+temp_output=()
+for func_name in "${!func_call_counts[@]}"; do
+    count=${func_call_counts[$func_name]}
+    defined_in=${func_def_files[$func_name]}
+    # 注意：为了让 sort -n 正确工作，数字应该在字符串的开头
+    # 并且为了保持对齐，我们可以在最后用 printf 重新格式化，或者接受 sort 后的原始对齐
+    temp_output+=("$(printf "%5d %-45s (定义于 %s)" "$count" "$func_name" "$defined_in")")
 done
 
-# 排序并打印
-if [[ ${#sorted_output_lines[@]} -gt 0 ]]; then
-    printf '%s\n' "${sorted_output_lines[@]}" | sort -k1,1nr -k2,2 | while IFS=' ' read -r count_val name_val; do
-        printf "%-45s %s\n" "$name_val" "$count_val"
-    done
-else
-    echo "No function calls were counted." # 如果没有任何函数被调用
-fi
+# 对 temp_output 数组中的内容进行排序
+# IFS=$'\n' 是为了处理函数名中可能包含空格的情况 (虽然你的例子中没有)
+# sort -rn 会根据行首的数字进行反向数值排序
+IFS=$'\n' sorted_output=($(sort -rn <<<"${temp_output[*]}"))
+unset IFS
 
-echo "--------------------------------------------------"
-echo "INFO: Scan complete."
+# 打印排序后的结果
+for line in "${sorted_output[@]}"; do
+    # 由于 sort 可能会改变空格，我们直接打印排序后的行
+    # 如果需要严格按照之前的 printf 格式，可以在这里重新解析和 printf，但通常直接打印即可
+    echo "$line 次调用" # 在末尾加上 "次调用"
+done
+
+
+echo -e "\n注意: 此脚本通过查找看起来像函数调用的函数名出现次数进行统计."
+# ... (末尾提示信息)
