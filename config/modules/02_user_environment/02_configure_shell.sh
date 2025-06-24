@@ -445,7 +445,7 @@ export BAT_THEME=\"TwoDark\""
         local fzf_opts_block="# fzf default options
 export FZF_DEFAULT_OPTS=\"--height 40% --layout=reverse --border\""
         # 使用双引号确保变量作为整体传递
-        rrun_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$fzf_opts_block' >> '$target_file'"
+        run_as_user "echo -e '\n' >> '$target_file' && printf '%s\n' '$fzf_opts_block' >> '$target_file'"
     fi
     return 0
 }

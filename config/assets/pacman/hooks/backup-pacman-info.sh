@@ -8,7 +8,8 @@ LOG_FILE="/var/log/arch_backups_logs/hook_backup_pacman_info_logs/backup-pacman-
 # --- End 配置 ---
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-
+mkdir -p "/var/log/arch_backups_logs/hook_backup_pacman_info_logs"
+touch "/var/log/arch_backups_logs/hook_backup_pacman_info_logs/backup-pacman-info.log"
 # 记录日志开始
 echo "-----------------------------------------" >> "$LOG_FILE"
 echo "Starting pacman info backup at $(date)" >> "$LOG_FILE"

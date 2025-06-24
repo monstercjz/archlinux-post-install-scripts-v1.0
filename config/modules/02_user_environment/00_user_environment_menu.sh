@@ -93,7 +93,7 @@ declare -A USER_ENVIRONMENT_MENU_ENTRIES=(
     [6]="配置 免密登入 (自动设置 手动教程)|action:core_modules:02_user_environment/06_configure_xfce_autologin.sh"
 
     # 示例: 使用 'extra_modules' 键指向 ANOTHER_MODULES_DIR (即 modules-another/)
-    [6]="待添加 (from another module dir)|action:extra_modules:my_extra_tool.sh"
+    [7]="待添加 (from another module dir)|action:extra_modules:my_extra_tool.sh"
     # 请确保 'modules-another/my_extra_tool.sh' 文件存在，以便此选项能正常工作
 )
 
