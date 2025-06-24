@@ -85,7 +85,7 @@ source "${BASE_DIR}/config/lib/environment_setup.sh" "$_current_script_entrypoin
 # 基础路径键: BASE_PATH_MAP 中定义的键 (例如 "core_modules", "extra_modules")
 declare -A COMMON_SOFTWARE_INSTALLATION_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
-    [1]="基础命令行软件 (fd tar ncdu reflector 等)|action:core_modules:04_common_software_installation/01_install_essential_software.sh"
+    [1]="gogh (终端色彩美化)|action:core_modules:04_common_software_installation/01_install_terminal_themes_gogh.sh"
     [2]="输入法 (添加中文社区软件源及秘钥)|action:core_modules:04_common_software_installation/02_install_input_method.sh"
     [3]="xxxxxx(修改网络信息)|menu:core_modules:02_user_environment/03_setup_network.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
@@ -113,7 +113,7 @@ main() {
     # _run_generic_menu 函数会处理菜单的显示、用户输入和导航逻辑。
     _run_generic_menu \
         "COMMON_SOFTWARE_INSTALLATION_MENU_ENTRIES" \
-        "常用软件安装（MENU NO.4）" \
+        "特别软件处理（MENU NO.4）" \
         "Exit Setup" \
         "${COLOR_PURPLE}" \
         "${COLOR_BLUE_BG}${COLOR_BOLD}${COLOR_WHITE}"
