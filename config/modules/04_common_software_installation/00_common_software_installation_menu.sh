@@ -87,7 +87,7 @@ declare -A COMMON_SOFTWARE_INSTALLATION_MENU_ENTRIES=(
     # 使用 'core_modules' 键指向 MODULES_DIR (即 config/modules)
     [1]="gogh (终端色彩美化)|action:core_modules:04_common_software_installation/01_install_terminal_themes_gogh.sh"
     [2]="安装 AppImage (设置快捷方式)|action:core_modules:04_common_software_installation/02_install_appimage.sh"
-    [3]="卸载 AppImage (设置快捷方式)|action:core_modules:04_common_software_installation/03_uninstall_appimage.sh"
+    [3]="卸载 AppImage (自动定位相关文件)|action:core_modules:04_common_software_installation/03_uninstall_appimage.sh"
     [4]="xxxx (Essential, Common, Specific Apps)|menu:core_modules:04_software_installation/00_software_installation_menu.sh"
     [5]="XXXX|action:core_modules:00_cleanup_and_finish.sh"
 
